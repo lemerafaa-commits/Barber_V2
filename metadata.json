@@ -1,0 +1,6 @@
+{
+  "name": "João Barber - Agendamento",
+  "description": "Sistema de agendamento online rápido e intuitivo para barbearias.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

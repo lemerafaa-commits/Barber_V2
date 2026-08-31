@@ -1,0 +1,241 @@
+{
+  "entities": {
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Barbershop client appointment record",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Firestore document ID"
+        },
+        "businessId": {
+          "type": "string",
+          "description": "Barbershop tenant ID"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Name of the customer",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "Phone number of the customer",
+          "minLength": 8,
+          "maxLength": 30
+        },
+        "date": {
+          "type": "string",
+          "description": "Appointment date in YYYY-MM-DD format"
+        },
+        "time": {
+          "type": "string",
+          "description": "Appointment time in HH:mm format"
+        },
+        "services": {
+          "type": "array",
+          "description": "List of booked services"
+        },
+        "totalPrice": {
+          "type": "number",
+          "description": "Total price in BRL"
+        },
+        "duration": {
+          "type": "number",
+          "description": "Total duration in minutes"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "cancelled", "completed", "no_show"]
+        }
+      },
+      "required": [
+        "businessId",
+        "customerName",
+        "customerPhone",
+        "date",
+        "time",
+        "services",
+        "totalPrice",
+        "duration",
+        "status"
+      ]
+    },
+    "BusinessProfile": {
+      "title": "BusinessProfile",
+      "description": "Barbershop identity, contact, address and opening schedule",
+      "type": "object",
+      "properties": {
+        "businessId": {
+          "type": "string",
+          "description": "Barbershop tenant ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the barbershop",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Slogan or description of the barbershop",
+          "maxLength": 500
+        },
+        "logoUrl": {
+          "type": "string",
+          "description": "URL of the logo image"
+        },
+        "whatsapp": {
+          "type": "string",
+          "description": "WhatsApp contact number",
+          "maxLength": 30
+        },
+        "instagram": {
+          "type": "string",
+          "description": "Instagram handle or URL",
+          "maxLength": 60
+        },
+        "address": {
+          "type": "object",
+          "description": "Physical address structure"
+        },
+        "openingHours": {
+          "type": "object",
+          "description": "Weekly schedule structure"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp of the last update"
+        }
+      },
+      "required": [
+        "businessId",
+        "name",
+        "description",
+        "logoUrl",
+        "whatsapp",
+        "instagram",
+        "address",
+        "openingHours"
+      ]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Barbershop catalog service item with price and duration",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Firestore document ID"
+        },
+        "businessId": {
+          "type": "string",
+          "description": "Barbershop tenant ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the service (e.g. Corte Degradê)",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "Category identifier (e.g. cabelo, barba, combo)"
+        },
+        "categoryName": {
+          "type": "string",
+          "description": "Category display name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Service description details"
+        },
+        "price": {
+          "type": "number",
+          "description": "Price in BRL"
+        },
+        "durationMinutes": {
+          "type": "number",
+          "description": "Service duration in minutes"
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Active status toggle for soft deletion"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": [
+        "businessId",
+        "name",
+        "categoryId",
+        "price",
+        "durationMinutes",
+        "active"
+      ]
+    },
+    "BusySlot": {
+      "title": "BusySlot",
+      "description": "Anonymous schedule occupation block for public availability check without PII",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Firestore document ID"
+        },
+        "businessId": {
+          "type": "string",
+          "description": "Barbershop tenant ID"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date in YYYY-MM-DD format"
+        },
+        "time": {
+          "type": "string",
+          "description": "Time in HH:mm format"
+        },
+        "duration": {
+          "type": "number",
+          "description": "Duration in minutes"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "cancelled", "completed", "no_show"]
+        }
+      },
+      "required": [
+        "businessId",
+        "date",
+        "time",
+        "duration",
+        "status"
+      ]
+    }
+  },
+  "firestore": {
+    "/busy_slots/{slotId}": {
+      "schema": "BusySlot",
+      "description": "Public schedule slots used to calculate slot availability with zero PII exposure"
+    },
+    "/appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Collection of all barbershop customer appointments"
+    },
+    "/businesses/{businessId}": {
+      "schema": "BusinessProfile",
+      "description": "Document holding the configuration, branding and business profile of a barbershop"
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Collection of all services offered by the barbershop"
+    }
+  }
+}
