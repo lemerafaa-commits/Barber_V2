@@ -48,6 +48,10 @@
         "status": {
           "type": "string",
           "enum": ["confirmed", "cancelled", "completed", "no_show"]
+        },
+        "whatsappOptIn": {
+          "type": "boolean",
+          "description": "Optional customer consent to receive WhatsApp booking confirmation"
         }
       },
       "required": [
