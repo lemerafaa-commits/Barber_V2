@@ -1,4 +1,4 @@
-import { AppointmentNotificationPayload, NotificationResult } from '../types';
+import { AppointmentNotificationPayload, NotificationResult } from '../types.js';
 
 /**
  * Common interface for WhatsApp communication providers.

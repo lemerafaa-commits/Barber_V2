@@ -1,4 +1,4 @@
-import { handleNotificationRequest } from '../../src/services/notifications/serverHandler';
+import { handleNotificationRequest } from '../../src/services/notifications/serverHandler.js';
 
 /**
  * Vercel Serverless Function for WhatsApp appointment confirmation.

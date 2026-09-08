@@ -1,6 +1,6 @@
 import twilio from 'twilio';
-import { WhatsAppProvider } from './whatsappProvider';
-import { AppointmentNotificationPayload, NotificationResult } from '../types';
+import { WhatsAppProvider } from './whatsappProvider.js';
+import { AppointmentNotificationPayload, NotificationResult } from '../types.js';
 
 /**
  * Normalizes user-supplied phone string into international WhatsApp E.164 format:

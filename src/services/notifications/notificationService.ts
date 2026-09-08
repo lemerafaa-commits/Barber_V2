@@ -1,6 +1,6 @@
-import { WhatsAppProvider } from './providers/whatsappProvider';
-import { TwilioWhatsAppProvider } from './providers/twilioWhatsAppProvider';
-import { AppointmentNotificationPayload, NotificationResult } from './types';
+import { WhatsAppProvider } from './providers/whatsappProvider.js';
+import { TwilioWhatsAppProvider } from './providers/twilioWhatsAppProvider.js';
+import { AppointmentNotificationPayload, NotificationResult } from './types.js';
 
 export class NotificationService {
   private provider: WhatsAppProvider;

@@ -1,10 +1,10 @@
-import { notificationService } from './notificationService';
+import { notificationService } from './notificationService.js';
 import {
   getRealAppointmentById,
   markAppointmentNotificationSent,
   RealAppointmentRecord,
-} from '../firebase/serverDb';
-import { AppointmentNotificationPayload, NotificationStatus } from './types';
+} from '../firebase/serverDb.js';
+import { AppointmentNotificationPayload, NotificationStatus } from './types.js';
 
 export interface ServerHandlerResponse {
   status: number;
