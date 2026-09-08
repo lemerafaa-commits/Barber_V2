@@ -4,6 +4,11 @@ import { getFirestore, Firestore } from 'firebase-admin/firestore';
 let adminApp: App | null = null;
 let adminDb: Firestore | null = null;
 
+// Temporary diagnostic holders (non-sensitive)
+let diagProjectId = '';
+let diagClientEmail = '';
+let diagCredentialSource = '';
+
 export interface RealAppointmentRecord {
   id: string;
   businessId: string;
@@ -34,28 +39,44 @@ export function getAdminFirestore(): Firestore {
     return adminDb;
   }
 
-  const projectId = process.env.FIREBASE_PROJECT_ID || 'saas-barberaria-teste-v1';
+  const envProjectId = process.env.FIREBASE_PROJECT_ID;
+  const defaultProjectId = 'saas-barberaria-teste-v1';
+  const projectId = envProjectId || defaultProjectId;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY
     ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
     : undefined;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 
+  const hasPrivateKey = Boolean(process.env.FIREBASE_PRIVATE_KEY);
+  const hasServiceAccount = Boolean(serviceAccountJson);
+
   if (getApps().length > 0) {
     adminApp = getApps()[0];
+    diagProjectId = adminApp.options.projectId || projectId;
+    diagCredentialSource = 'Existing App Instance (' + adminApp.name + ')';
+    diagClientEmail = diagClientEmail || '(already initialized app)';
   } else {
     if (serviceAccountJson) {
       try {
         const parsed = JSON.parse(serviceAccountJson);
+        diagCredentialSource = 'FIREBASE_SERVICE_ACCOUNT';
+        diagClientEmail = parsed.client_email || '(unknown client_email)';
+        diagProjectId = parsed.project_id || projectId;
+
         adminApp = initializeApp({
           credential: cert(parsed),
-          projectId: parsed.project_id || projectId,
+          projectId: diagProjectId,
         });
       } catch (err: any) {
         console.error('[Firebase Admin] Error parsing FIREBASE_SERVICE_ACCOUNT JSON:', err?.message);
         throw new Error('FIREBASE_CONFIG_ERROR');
       }
     } else if (clientEmail && privateKey) {
+      diagCredentialSource = 'FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY';
+      diagClientEmail = clientEmail;
+      diagProjectId = projectId;
+
       adminApp = initializeApp({
         credential: cert({
           projectId,
@@ -65,10 +86,21 @@ export function getAdminFirestore(): Firestore {
         projectId,
       });
     } else {
-      // Default initialization (falls back to ADC or project metadata)
+      diagCredentialSource = 'Application Default Credentials';
+      diagClientEmail = '(ADC / default environment)';
+      diagProjectId = projectId;
+
       adminApp = initializeApp({ projectId });
     }
   }
+
+  // Diagnostic logs at initialization (strictly non-sensitive)
+  console.log('[Firebase Admin Init] Process FIREBASE_PROJECT_ID:', envProjectId || '(not set)');
+  console.log('[Firebase Admin Init] FIREBASE_SERVICE_ACCOUNT present:', hasServiceAccount);
+  console.log('[Firebase Admin Init] FIREBASE_PRIVATE_KEY present:', hasPrivateKey);
+  console.log('[Firebase Admin Init] Credential method used:', diagCredentialSource);
+  console.log('[Firebase Admin Init] Client email used:', diagClientEmail);
+  console.log('[Firebase Admin Init] ProjectId resolved:', diagProjectId);
 
   adminDb = getFirestore(adminApp);
   return adminDb;
@@ -96,6 +128,12 @@ export async function getRealAppointmentById(
 
   try {
     const db = getAdminFirestore();
+
+    // Sanitized diagnostic log immediately before querying Firestore
+    console.log(`[Firebase Admin Diagnostic] projectId=${diagProjectId}`);
+    console.log(`[Firebase Admin Diagnostic] clientEmail=${diagClientEmail}`);
+    console.log(`[Firebase Admin Diagnostic] credentialSource=${diagCredentialSource}`);
+
     const docRef = db.collection('appointments').doc(cleanId);
     const snap = await docRef.get();
 
