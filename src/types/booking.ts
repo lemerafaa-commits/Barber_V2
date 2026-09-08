@@ -76,6 +76,7 @@ export interface DayOption {
 export interface ClientInfo {
   name: string;
   phone: string;
+  whatsappOptIn?: boolean;
 }
 
 export interface BookingState {

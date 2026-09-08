@@ -27,6 +27,7 @@ export interface FirestoreAppointmentInput {
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
   services: Service[];
+  whatsappOptIn?: boolean;
 }
 
 export interface FirestoreAppointmentRecord {
@@ -41,6 +42,7 @@ export interface FirestoreAppointmentRecord {
   duration: number;
   status: 'confirmed' | 'cancelled' | 'completed' | 'no_show';
   createdAt: any;
+  whatsappOptIn?: boolean;
 }
 
 /**
@@ -135,6 +137,7 @@ export async function createFirestoreAppointment(
       duration,
       status: 'confirmed' as const,
       createdAt: serverTimestamp(),
+      whatsappOptIn: input.whatsappOptIn === true,
     };
 
     const aptDocRef = doc(collection(db, collectionPath));

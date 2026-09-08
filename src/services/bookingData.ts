@@ -4,7 +4,8 @@ import {
   Appointment,
   Barbershop,
   Service,
-  Professional
+  Professional,
+  ClientInfo
 } from '../types/booking';
 import {
   MOCK_BARBERSHOP,
@@ -145,7 +146,7 @@ export async function createBooking(
     professional: Professional;
     selectedDate: DayOption;
     selectedTime: string;
-    clientInfo: { name: string; phone: string };
+    clientInfo: ClientInfo;
     simulateConflict?: boolean;
     simulateDelayMs?: number;
   }
@@ -199,6 +200,7 @@ export async function createBooking(
     date: request.selectedDate.dateString,
     time: request.selectedTime,
     services: selectedServices,
+    whatsappOptIn: request.clientInfo.whatsappOptIn === true,
   });
 
   const randomCode = `#JB-${firestoreRecord.id.slice(-4).toUpperCase()}`;

@@ -245,6 +245,26 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({
                 Informe um celular com DDD ex: (35) 99988-7766
               </p>
             )}
+
+            {/* WhatsApp Opt-in Checkbox (Unchecked by default - requires explicit customer consent) */}
+            <div className="pt-1.5">
+              <label className="flex items-start gap-2.5 cursor-pointer select-none group">
+                <input
+                  type="checkbox"
+                  checked={clientInfo.whatsappOptIn === true}
+                  onChange={(e) =>
+                    onChangeClientInfo({
+                      ...clientInfo,
+                      whatsappOptIn: e.target.checked,
+                    })
+                  }
+                  className="mt-0.5 w-4 h-4 rounded bg-zinc-950 border-zinc-700 text-amber-500 focus:ring-amber-500/20 cursor-pointer accent-amber-500"
+                />
+                <span className="text-xs text-zinc-300 group-hover:text-zinc-200 transition-colors">
+                  Quero receber a confirmação do meu agendamento pelo WhatsApp.
+                </span>
+              </label>
+            </div>
           </div>
 
           <div className="pt-1 flex items-center gap-2 text-xs text-zinc-400">

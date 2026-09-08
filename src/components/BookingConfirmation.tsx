@@ -58,6 +58,12 @@ export const BookingConfirmation: React.FC<BookingConfirmationProps> = ({
           <p className="text-sm text-zinc-300 mt-1">
             Seu horário está reservado com sucesso na barbearia.
           </p>
+          {appointment.clientInfo?.whatsappOptIn && (
+            <p className="text-xs text-emerald-400/90 mt-1.5 flex items-center justify-center gap-1.5 font-medium">
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>Enviamos a confirmação para o seu WhatsApp.</span>
+            </p>
+          )}
         </div>
 
         {/* Appointment Code Badge */}

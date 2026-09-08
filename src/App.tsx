@@ -37,6 +37,7 @@ import {
   businessProfileToBarbershop,
   DEFAULT_BUSINESS_PROFILE
 } from './services/businessProfileData';
+import { triggerWhatsAppConfirmation } from './services/notifications/clientNotification';
 
 export default function App() {
   // Simple SPA path router state
@@ -110,6 +111,7 @@ export default function App() {
     clientInfo: {
       name: '',
       phone: '',
+      whatsappOptIn: false,
     },
   });
 
@@ -309,6 +311,12 @@ export default function App() {
       if (bookingState.selectedDate) {
         await fetchDayAppointments(bookingState.selectedDate.dateString);
       }
+
+      // Asynchronously trigger WhatsApp confirmation (100% isolated & non-blocking)
+      // Any failure here is caught inside triggerWhatsAppConfirmation and will NEVER disrupt the appointment
+      triggerWhatsAppConfirmation(appointment).catch((notifErr) => {
+        console.warn('[WhatsApp] Non-blocking dispatch notice:', notifErr);
+      });
     } catch (err: any) {
       if (err?.message === 'SLOT_CONFLICT') {
         setSlotConflictError(true);
@@ -340,7 +348,7 @@ export default function App() {
       isAnyProfessional: true,
       selectedDate: upcomingDays.find((d) => d.isAvailable) || null,
       selectedTime: null,
-      clientInfo: { name: '', phone: '' },
+      clientInfo: { name: '', phone: '', whatsappOptIn: false },
     });
   };
 
