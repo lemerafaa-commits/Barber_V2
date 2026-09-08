@@ -31,6 +31,20 @@ export function normalizeWhatsAppRecipient(phone: string): string | null {
   return null;
 }
 
+function maskSid(sid?: string, prefixLen = 2, suffixLen = 4): string {
+  if (!sid || typeof sid !== 'string') return '(not set)';
+  const clean = sid.trim();
+  if (clean.length <= prefixLen + suffixLen) return '***';
+  return `${clean.slice(0, prefixLen)}...${clean.slice(-suffixLen)}`;
+}
+
+function maskContentSid(sid?: string): string {
+  if (!sid || typeof sid !== 'string') return '(not set)';
+  const clean = sid.trim();
+  if (clean.length < 7) return '***';
+  return `${clean.slice(0, 2)}...${clean.slice(-4)}`;
+}
+
 export class TwilioWhatsAppProvider implements WhatsAppProvider {
   readonly providerName = 'TwilioWhatsApp';
 
@@ -115,25 +129,51 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
         };
       }
 
-      console.log(`[WhatsApp] [Apt:${appointmentId}] Sending confirmation via template ${contentSid.trim()} to ${toNumber.slice(0, 14)}...`);
+      // --- TEMPORARY SAFE DIAGNOSTIC CHECKS ---
+      const configuredAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+      let authenticatedAccountSid = '(fetch error)';
+      let isMatch = false;
 
-      // 5. Send message strictly via Twilio Content Template
-      const messageResponse = await client.messages.create({
-        from: fromNumber,
-        to: toNumber,
-        contentSid: contentSid.trim(),
-        contentVariables: JSON.stringify({
-          '1': appointmentDate,
-          '2': appointmentTime,
-        }),
-      });
+      try {
+        if (configuredAccountSid) {
+          const account = await client.api.v2010.accounts(configuredAccountSid).fetch();
+          authenticatedAccountSid = account.sid;
+          isMatch = configuredAccountSid === authenticatedAccountSid;
+        }
+      } catch (authCheckErr: any) {
+        authenticatedAccountSid = `(fetch failed: ${authCheckErr?.message || authCheckErr?.code || 'AUTH_ERROR'})`;
+        isMatch = false;
+      }
 
-      console.log(`[WhatsApp] [Apt:${appointmentId}] Confirmation sent successfully (SID: ${messageResponse.sid})`);
+      // Safe Diagnostic Logs (Strictly Non-Sensitive)
+      console.log(`[Twilio Diagnostic] Configured Account SID: ${maskSid(configuredAccountSid, 2, 4)}`);
+      console.log(`[Twilio Diagnostic] Authenticated Account SID: ${maskSid(authenticatedAccountSid, 2, 4)}`);
+      console.log(`[Twilio Diagnostic] Account SID MATCH: ${isMatch}`);
+      console.log(`[Twilio Diagnostic] TWILIO_WHATSAPP_FROM present: ${Boolean(process.env.TWILIO_WHATSAPP_FROM)}`);
+      console.log(`[Twilio Diagnostic] TWILIO_CONTENT_SID present: ${Boolean(process.env.TWILIO_CONTENT_SID)}`);
+      console.log(`[Twilio Diagnostic] Content SID: ${maskContentSid(contentSid)}`);
+
+      // Safe consultation of ContentSid in the authenticated account via Twilio Content API
+      try {
+        const cleanContentSid = contentSid.trim();
+        const contentInstance = await client.content.v1.contents(cleanContentSid).fetch();
+        console.log(
+          `[Twilio Diagnostic] Content SID verification: FOUND in account (friendlyName: "${contentInstance.friendlyName}")`
+        );
+      } catch (contentCheckErr: any) {
+        console.warn(`[Twilio Diagnostic] Content SID verification FAILED:`, {
+          status: contentCheckErr?.status || contentCheckErr?.code || 'UNKNOWN',
+          message: contentCheckErr?.message || 'Resource not found or inaccessible for this account',
+        });
+      }
+
+      // TEMPORARY DIAGNOSTIC: Message creation bypassed to inspect account & contentSid without sending
+      console.log(`[Twilio Diagnostic] Message creation BYPASSED for diagnostic. No WhatsApp message was sent.`);
 
       return {
-        success: true,
-        status: 'SENT',
-        messageId: messageResponse.sid,
+        success: false,
+        status: 'PROVIDER_ERROR',
+        error: 'DIAGNOSTIC_COMPLETED_NO_MESSAGE_SENT',
       };
     } catch (err: any) {
       // Safe sanitized logging - never log credentials, API keys, or raw tokens
