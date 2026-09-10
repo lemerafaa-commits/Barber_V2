@@ -31,20 +31,6 @@ export function normalizeWhatsAppRecipient(phone: string): string | null {
   return null;
 }
 
-function maskSid(sid?: string, prefixLen = 2, suffixLen = 4): string {
-  if (!sid || typeof sid !== 'string') return '(not set)';
-  const clean = sid.trim();
-  if (clean.length <= prefixLen + suffixLen) return '***';
-  return `${clean.slice(0, prefixLen)}...${clean.slice(-suffixLen)}`;
-}
-
-function maskContentSid(sid?: string): string {
-  if (!sid || typeof sid !== 'string') return '(not set)';
-  const clean = sid.trim();
-  if (clean.length < 7) return '***';
-  return `${clean.slice(0, 2)}...${clean.slice(-4)}`;
-}
-
 export class TwilioWhatsAppProvider implements WhatsAppProvider {
   readonly providerName = 'TwilioWhatsApp';
 
@@ -131,41 +117,46 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
 
       // --- TEMPORARY SAFE DIAGNOSTIC CHECKS ---
       const configuredAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
-      let authenticatedAccountSid = '(fetch error)';
-      let isMatch = false;
+      const apiKeySid = process.env.TWILIO_API_KEY_SID?.trim();
+
+      console.log(`[Twilio Diagnostic] API key SID present: ${Boolean(apiKeySid)}`);
+
+      // Configured Account SID metrics (sanitized, never full SID)
+      const confLen = configuredAccountSid ? configuredAccountSid.length : 0;
+      const confPrefix = configuredAccountSid && configuredAccountSid.length >= 2 ? configuredAccountSid.slice(0, 2) : '(none)';
+      const confSuffix = configuredAccountSid && configuredAccountSid.length >= 4 ? configuredAccountSid.slice(-4) : '(none)';
+
+      console.log(`[Twilio Diagnostic] Configured Account SID length: ${confLen}`);
+      console.log(`[Twilio Diagnostic] Configured Account SID prefix: ${confPrefix}`);
+      console.log(`[Twilio Diagnostic] Configured Account SID suffix: ${confSuffix}`);
+
+      let authenticatedSidValue: any = null;
 
       try {
         if (configuredAccountSid) {
           const account = await client.api.v2010.accounts(configuredAccountSid).fetch();
-          authenticatedAccountSid = account.sid;
-          isMatch = configuredAccountSid === authenticatedAccountSid;
+          if (account && account.sid) {
+            authenticatedSidValue = account.sid;
+          }
         }
       } catch (authCheckErr: any) {
-        authenticatedAccountSid = `(fetch failed: ${authCheckErr?.message || authCheckErr?.code || 'AUTH_ERROR'})`;
-        isMatch = false;
+        console.warn(`[Twilio Diagnostic] Account fetch error: ${authCheckErr?.status || authCheckErr?.code || 'AUTH_ERROR'} - ${authCheckErr?.message || 'Failed'}`);
       }
 
-      // Safe Diagnostic Logs (Strictly Non-Sensitive)
-      console.log(`[Twilio Diagnostic] Configured Account SID: ${maskSid(configuredAccountSid, 2, 4)}`);
-      console.log(`[Twilio Diagnostic] Authenticated Account SID: ${maskSid(authenticatedAccountSid, 2, 4)}`);
-      console.log(`[Twilio Diagnostic] Account SID MATCH: ${isMatch}`);
-      console.log(`[Twilio Diagnostic] TWILIO_WHATSAPP_FROM present: ${Boolean(process.env.TWILIO_WHATSAPP_FROM)}`);
-      console.log(`[Twilio Diagnostic] TWILIO_CONTENT_SID present: ${Boolean(process.env.TWILIO_CONTENT_SID)}`);
-      console.log(`[Twilio Diagnostic] Content SID: ${maskContentSid(contentSid)}`);
+      const authSidPresent = Boolean(authenticatedSidValue);
+      const authSidType = typeof authenticatedSidValue;
+      const authSidStr = typeof authenticatedSidValue === 'string' ? authenticatedSidValue : '';
+      const authLen = authSidStr.length;
+      const authPrefix = authLen >= 2 ? authSidStr.slice(0, 2) : '(none)';
+      const authSuffix = authLen >= 4 ? authSidStr.slice(-4) : '(none)';
+      const rawMatch = Boolean(configuredAccountSid && authSidStr && configuredAccountSid === authSidStr);
 
-      // Safe consultation of ContentSid in the authenticated account via Twilio Content API
-      try {
-        const cleanContentSid = contentSid.trim();
-        const contentInstance = await client.content.v1.contents(cleanContentSid).fetch();
-        console.log(
-          `[Twilio Diagnostic] Content SID verification: FOUND in account (friendlyName: "${contentInstance.friendlyName}")`
-        );
-      } catch (contentCheckErr: any) {
-        console.warn(`[Twilio Diagnostic] Content SID verification FAILED:`, {
-          status: contentCheckErr?.status || contentCheckErr?.code || 'UNKNOWN',
-          message: contentCheckErr?.message || 'Resource not found or inaccessible for this account',
-        });
-      }
+      console.log(`[Twilio Diagnostic] Authenticated Account SID present: ${authSidPresent}`);
+      console.log(`[Twilio Diagnostic] Authenticated Account SID type: ${authSidType}`);
+      console.log(`[Twilio Diagnostic] Authenticated Account SID length: ${authLen}`);
+      console.log(`[Twilio Diagnostic] Authenticated Account SID prefix: ${authPrefix}`);
+      console.log(`[Twilio Diagnostic] Authenticated Account SID suffix: ${authSuffix}`);
+      console.log(`[Twilio Diagnostic] RAW ACCOUNT SID MATCH: ${rawMatch}`);
 
       // TEMPORARY DIAGNOSTIC: Message creation bypassed to inspect account & contentSid without sending
       console.log(`[Twilio Diagnostic] Message creation BYPASSED for diagnostic. No WhatsApp message was sent.`);
