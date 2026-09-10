@@ -149,7 +149,7 @@ export async function getFirestoreServices(
       return a.name.localeCompare(b.name);
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, collectionPath);
+    console.warn('[Firestore] Consulta de serviços inacessível (regras ou conexão). Utilizando catálogo local.', error);
     return [];
   }
 }

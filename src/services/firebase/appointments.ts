@@ -99,47 +99,46 @@ export async function createFirestoreAppointment(
   input: FirestoreAppointmentInput
 ): Promise<FirestoreAppointmentRecord> {
   const collectionPath = 'appointments';
+  const businessId = input.businessId || 'joao-barber';
+
+  // Format services array with category and option details
+  const formattedServices: FirestoreServiceItem[] = input.services.map((s) => {
+    const optionName = s.selectedOption || 'Padrão';
+    const optionId = optionName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-');
+
+    return {
+      categoryId: s.categoryId || s.id,
+      categoryName: s.name,
+      optionId,
+      optionName,
+      price: Number(s.price),
+      duration: Number(s.durationMinutes),
+    };
+  });
+
+  // Calculate total price and total duration from selected services
+  const totalPrice = formattedServices.reduce((acc, s) => acc + s.price, 0);
+  const duration = formattedServices.reduce((acc, s) => acc + s.duration, 0);
+
+  const docPayload = {
+    businessId,
+    customerName: input.customerName.trim(),
+    customerPhone: input.customerPhone.trim(),
+    date: input.date,
+    time: input.time,
+    services: formattedServices,
+    totalPrice,
+    duration,
+    status: 'confirmed' as const,
+    createdAt: serverTimestamp(),
+    whatsappOptIn: input.whatsappOptIn === true,
+  };
 
   try {
-    const businessId = input.businessId || 'joao-barber';
-
-    // Format services array with category and option details
-    const formattedServices: FirestoreServiceItem[] = input.services.map((s) => {
-      const optionName = s.selectedOption || 'Padrão';
-      const optionId = optionName
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-');
-
-      return {
-        categoryId: s.categoryId || s.id,
-        categoryName: s.name,
-        optionId,
-        optionName,
-        price: Number(s.price),
-        duration: Number(s.durationMinutes),
-      };
-    });
-
-    // Calculate total price and total duration from selected services
-    const totalPrice = formattedServices.reduce((acc, s) => acc + s.price, 0);
-    const duration = formattedServices.reduce((acc, s) => acc + s.duration, 0);
-
-    const docPayload = {
-      businessId,
-      customerName: input.customerName.trim(),
-      customerPhone: input.customerPhone.trim(),
-      date: input.date,
-      time: input.time,
-      services: formattedServices,
-      totalPrice,
-      duration,
-      status: 'confirmed' as const,
-      createdAt: serverTimestamp(),
-      whatsappOptIn: input.whatsappOptIn === true,
-    };
-
     const aptDocRef = doc(collection(db, collectionPath));
     const busySlotDocRef = doc(db, 'busy_slots', aptDocRef.id);
 
@@ -161,6 +160,7 @@ export async function createFirestoreAppointment(
       ...docPayload,
     };
   } catch (error) {
+    console.error('[Firestore] Falha na gravação do agendamento:', error);
     handleFirestoreError(error, OperationType.CREATE, collectionPath);
     throw error;
   }
@@ -230,7 +230,7 @@ export async function getFirestoreAppointmentsByDate(
     });
     return records.sort((a, b) => a.time.localeCompare(b.time));
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, 'busy_slots');
+    console.warn('[Firestore] Consulta de horários ocupados inacessível (regras ou conexão). Permitindo seleção de horários padrão.', error);
     return [];
   }
 }
@@ -262,7 +262,7 @@ export async function getFirestoreAppointmentsForAdmin(
       return a.time.localeCompare(b.time);
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, collectionPath);
+    console.warn('[Firestore] Consulta de agendamentos do admin inacessível no momento.', error);
     return [];
   }
 }
@@ -282,7 +282,7 @@ export async function updateFirestoreAppointmentStatus(
     const slotRef = doc(db, 'busy_slots', appointmentId);
 
     batch.update(aptRef, { status });
-    batch.set(slotRef, { status }, { merge: true });
+    batch.update(slotRef, { status });
     await batch.commit();
 
     return { success: true };

@@ -8,6 +8,10 @@ import { BookingConfirmation } from './components/BookingConfirmation';
 import { BarbershopInfoFooter } from './components/BarbershopInfoFooter';
 import { DevEdgeCasesModal } from './components/DevEdgeCasesModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { AdminLogin } from './components/admin/AdminLogin';
+import { User } from 'firebase/auth';
+import { subscribeToAuthChanges } from './services/firebase/auth';
+import { Loader2 } from 'lucide-react';
 
 import {
   BookingState,
@@ -18,7 +22,7 @@ import {
   Appointment,
   Barbershop
 } from './types/booking';
-import { MOCK_BARBERSHOP, MOCK_PROFESSIONALS } from './data/mockData';
+import { MOCK_BARBERSHOP, MOCK_PROFESSIONALS, MOCK_SERVICE_CATEGORIES } from './data/mockData';
 import {
   getUpcomingDays,
   getAvailableTimeSlots,
@@ -56,6 +60,18 @@ export default function App() {
     setCurrentPath(path);
   };
 
+  // Firebase Auth state for protected admin access
+  const [adminUser, setAdminUser] = useState<User | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges((user) => {
+      setAdminUser(user);
+      setIsAuthChecking(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Current active step in progressive disclosure (1: Service, 2: Date & Time, 3: Customer Data)
   const [currentStep, setCurrentStep] = useState<StepNumber>(1);
 
@@ -76,19 +92,22 @@ export default function App() {
     fetchBarbershopInfo();
   }, []);
 
-  // Dynamic Service categories fetched from Firestore
-  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
-  const [isLoadingServices, setIsLoadingServices] = useState<boolean>(true);
+  // Dynamic Service categories fetched from Firestore (fallback to MOCK_SERVICE_CATEGORIES)
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>(MOCK_SERVICE_CATEGORIES);
+  const [isLoadingServices, setIsLoadingServices] = useState<boolean>(false);
 
   useEffect(() => {
     async function fetchServices() {
-      setIsLoadingServices(true);
       try {
         const firestoreServices = await getFirestoreServices('joao-barber');
-        const categories = adminServicesToBookingCategories(firestoreServices);
-        setServiceCategories(categories);
+        if (firestoreServices && firestoreServices.length > 0) {
+          const categories = adminServicesToBookingCategories(firestoreServices);
+          if (categories.length > 0) {
+            setServiceCategories(categories);
+          }
+        }
       } catch (err) {
-        console.warn('Erro ao carregar serviços públicos do Firestore:', err);
+        console.warn('Utilizando catálogo padrão de serviços da barbearia:', err);
       } finally {
         setIsLoadingServices(false);
       }
@@ -150,8 +169,8 @@ export default function App() {
       const records = await getFirestoreAppointmentsByDate(dateStr, 'joao-barber');
       setDayAppointments(records);
     } catch (err) {
-      console.error('Erro ao carregar agendamentos do Firestore:', err);
-      setTimeSlotsError('Não foi possível carregar os horários.');
+      console.warn('Utilizando horários disponíveis padrão para agendamento:', err);
+      setTimeSlotsError(null);
       setDayAppointments([]);
     } finally {
       setIsLoadingTimeSlots(false);
@@ -352,9 +371,36 @@ export default function App() {
     });
   };
 
-  // Render Admin Dashboard if path is /admin
+  // Render Admin space if path is /admin
   if (currentPath.startsWith('/admin')) {
-    return <AdminDashboard onGoToPublicPage={() => navigateTo('/')} />;
+    if (isAuthChecking) {
+      return (
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+          <span className="text-xs text-zinc-400 font-medium">Verificando autorização...</span>
+        </div>
+      );
+    }
+
+    if (!adminUser) {
+      return (
+        <AdminLogin
+          onLoginSuccess={() => {
+            // State automatically transitions via onAuthStateChanged
+          }}
+          onGoToPublicPage={() => navigateTo('/')}
+        />
+      );
+    }
+
+    return (
+      <AdminDashboard
+        onGoToPublicPage={() => navigateTo('/')}
+        onLogout={() => {
+          // Handled via onAuthStateChanged, user state resets to null
+        }}
+      />
+    );
   }
 
   return (

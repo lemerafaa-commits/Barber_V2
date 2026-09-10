@@ -125,7 +125,7 @@ export async function getFirestoreBusinessProfile(
       businessId,
     };
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, docPath);
+    console.warn('[Firestore] Perfil da barbearia inacessível (regras ou conexão). Retornando perfil padrão.', error);
     // Return resilient fallback if offline or unexpected network error
     return {
       ...DEFAULT_BUSINESS_PROFILE,

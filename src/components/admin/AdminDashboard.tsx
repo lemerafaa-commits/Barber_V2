@@ -15,6 +15,7 @@ import {
   Store,
   History,
   Layers,
+  LogOut,
 } from 'lucide-react';
 import { AdminAppointment, AdminService } from '../../types/admin';
 import { MOCK_ADMIN_APPOINTMENTS } from '../../data/adminMockData';
@@ -56,12 +57,14 @@ import { AppointmentCalendar } from './appointments/AppointmentCalendar';
 import { HistoryAppointmentsSection } from './appointments/HistoryAppointmentsSection';
 import { AppointmentConfirmationModal, AppointmentActionType } from './appointments/AppointmentConfirmationModal';
 import { ServicesHub } from './services/ServicesHub';
+import { signOutAdmin } from '../../services/firebase/auth';
 
 interface AdminDashboardProps {
   onGoToPublicPage?: () => void;
+  onLogout?: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage, onLogout }) => {
   // Appointments state initialized with empty array, loaded from Firestore
   const [appointments, setAppointments] = useState<AdminAppointment[]>([]);
   const [isLoadingAppointments, setIsLoadingAppointments] = useState(true);
@@ -127,7 +130,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
         const realAppointments = await getFirestoreAppointmentsForAdmin('joao-barber');
         setAppointments(realAppointments);
       } catch (err) {
-        console.error('Erro ao carregar agendamentos do Firestore:', err);
+        console.warn('Agendamentos remotos inacessíveis (regras ou conexão):', err);
       } finally {
         setIsLoadingAppointments(false);
       }
@@ -314,6 +317,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
                 <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
               </button>
             )}
+
+            {/* Logout button */}
+            <button
+              id="admin-logout-btn"
+              type="button"
+              onClick={async () => {
+                try {
+                  await signOutAdmin();
+                  if (onLogout) onLogout();
+                } catch (e) {
+                  console.error('Erro ao encerrar sessão:', e);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/30 text-zinc-400 hover:text-red-400 text-xs font-semibold transition-colors cursor-pointer"
+              title="Sair do painel administrativo"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
           </div>
         </div>
 

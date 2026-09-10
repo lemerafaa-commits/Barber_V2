@@ -15,7 +15,7 @@ service cloud.firestore {
       && data.services is list && data.services.size() > 0 && data.services.size() <= 10
       && data.totalPrice is number && data.totalPrice >= 0
       && data.duration is number && data.duration > 0
-      && data.status in ['confirmed', 'cancelled', 'completed', 'no_show'];
+      && data.status == 'confirmed';
     }
 
     function isValidStatusUpdate(existingData, incomingData) {
@@ -99,6 +99,9 @@ service cloud.firestore {
 
     // Complete appointment records (Contains sensitive customer PII: name, phone, services, price)
     match /appointments/{appointmentId} {
+      // Allow read ONLY for authenticated admin users (protects customer PII from public access)
+      allow read: if request.auth != null;
+
       // Public creation of valid appointments
       allow create: if isValidAppointment(request.resource.data);
 

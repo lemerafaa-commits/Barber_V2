@@ -1,8 +1,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 export const firebaseConfig = {
-  apiKey: ((import.meta as any).env?.VITE_FIREBASE_API_KEY as string) || "AIzaSy_saas_barberaria_teste_v1_placeholder",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: "saas-barberaria-teste-v1.firebaseapp.com",
   projectId: "saas-barberaria-teste-v1",
   storageBucket: "saas-barberaria-teste-v1.firebasestorage.app",
@@ -12,6 +13,7 @@ export const firebaseConfig = {
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
 
 export enum OperationType {
   CREATE = 'create',
@@ -34,12 +36,13 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const currentUser = auth.currentUser;
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: null,
-      email: null,
-      emailVerified: null,
+      userId: currentUser?.uid || null,
+      email: currentUser?.email || null,
+      emailVerified: currentUser?.emailVerified || null,
     },
     operationType,
     path
