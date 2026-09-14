@@ -90,7 +90,12 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
       }
 
       // 3. Template validation (Strict Rule: No freeform messages allowed for business-initiated chats)
-      const contentSid = process.env.TWILIO_CONTENT_SID;
+      // Twilio ContentSid: HXfe5ab5f00277942d4d4200328b4d403c (substituindo HXb5b62575e6e4ff6129ad7c8efe1f983e)
+      const contentSid =
+        process.env.TWILIO_CONTENT_SID &&
+        process.env.TWILIO_CONTENT_SID.trim() !== 'HXb5b62575e6e4ff6129ad7c8efe1f983e'
+          ? process.env.TWILIO_CONTENT_SID.trim()
+          : 'HXfe5ab5f00277942d4d4200328b4d403c';
       if (!contentSid || contentSid.trim().length === 0) {
         console.warn(
           `[WhatsApp] [Apt:${appointmentId}] TWILIO_CONTENT_SID is not configured. Freeform messages are blocked. Notification skipped.`
