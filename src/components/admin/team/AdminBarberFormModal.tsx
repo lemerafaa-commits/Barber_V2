@@ -145,6 +145,11 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Active catalog services, plus any service already selected for this barber even if currently inactive in the catalog
+  const availableServices = services.filter(
+    (svc) => svc.active !== false || selectedServiceIds.includes(svc.id)
+  );
+
   // Toggle service selection in "Personalizar serviços"
   const handleToggleService = (serviceId: string, defaultDuration: number) => {
     setSelectedServiceIds((prev) => {
@@ -331,14 +336,16 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
         ? selectedServiceIds.map((sId) => {
             const cfg = serviceConfigs[sId];
             const svc = services.find((s) => s.id === sId);
+            const isCustom = cfg?.durationMode === 'custom';
             return {
               serviceId: sId,
-              serviceName: svc ? svc.name : '',
-              durationMode: cfg?.durationMode || 'default',
-              customDurationMinutes:
-                cfg?.durationMode === 'custom'
-                  ? cfg.customDurationMinutes || svc?.durationMinutes || 30
-                  : null,
+              serviceName: svc ? svc.name : cfg?.serviceName || '',
+              durationMode: isCustom ? 'custom' : 'default',
+              customDurationMinutes: isCustom
+                ? typeof cfg?.customDurationMinutes === 'number' && cfg.customDurationMinutes > 0
+                  ? cfg.customDurationMinutes
+                  : svc?.durationMinutes || 30
+                : null,
             };
           })
         : [];
@@ -593,7 +600,7 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
                 </div>
 
                 <div className="space-y-3">
-                  {services.map((svc) => {
+                  {availableServices.map((svc) => {
                     const isChecked = selectedServiceIds.includes(svc.id);
                     const config = serviceConfigs[svc.id] || {
                       serviceId: svc.id,
@@ -621,9 +628,16 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
                               className="w-4 h-4 rounded border-zinc-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-950 cursor-pointer"
                             />
                             <div>
-                              <span className="text-xs font-bold text-white block">
-                                {svc.name}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white block">
+                                  {svc.name}
+                                </span>
+                                {svc.active === false && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                    Inativo no catálogo
+                                  </span>
+                                )}
+                              </div>
                               <span className="text-[11px] text-zinc-400">
                                 Padrão do catálogo: {svc.durationMinutes} min
                               </span>
@@ -718,6 +732,12 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
                       </div>
                     );
                   })}
+
+                  {availableServices.length === 0 && (
+                    <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 text-center text-xs text-zinc-400">
+                      Nenhum serviço ativo disponível no catálogo. Cadastre ou reative serviços em &quot;Meus Serviços&quot;.
+                    </div>
+                  )}
                 </div>
               </div>
             )}

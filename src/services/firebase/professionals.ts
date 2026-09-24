@@ -166,6 +166,33 @@ export async function getFirestoreProfessionals(
 }
 
 /**
+ * Remove campos 'undefined' recursivamente para garantir compatibilidade com o Firestore SDK.
+ */
+function sanitizePayloadForFirestore(data: Record<string, any>): Record<string, any> {
+  const sanitized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      sanitized[key] = value.map((item) =>
+        item && typeof item === 'object' && !(item instanceof Date)
+          ? sanitizePayloadForFirestore(item)
+          : item
+      );
+    } else if (
+      value &&
+      typeof value === 'object' &&
+      !(value instanceof Date) &&
+      !('_methodName' in value)
+    ) {
+      sanitized[key] = sanitizePayloadForFirestore(value);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
+/**
  * Cria um novo profissional no Firestore.
  */
 export async function createFirestoreProfessional(
@@ -190,7 +217,7 @@ export async function createFirestoreProfessional(
   }
 
   try {
-    const payload = {
+    const rawPayload = {
       businessId,
       name: barberData.name.trim(),
       photoUrl: barberData.photoUrl || '',
@@ -206,6 +233,8 @@ export async function createFirestoreProfessional(
       updatedAt: serverTimestamp(),
     };
 
+    const payload = sanitizePayloadForFirestore(rawPayload);
+
     console.info(`[Equipe Firestore] Executando addDoc na coleção "${COLLECTION_PATH}"...`, { businessId, name: payload.name });
     const docRef = await addDoc(collection(db, COLLECTION_PATH), payload);
     console.info(`[Equipe Firestore] SUCESSO! Documento gravado no Firestore com ID: "${docRef.id}"`);
@@ -220,7 +249,12 @@ export async function createFirestoreProfessional(
       updatedAt: new Date().toISOString(),
     };
   } catch (error: any) {
-    console.error('[Equipe Firestore] ERRO no addDoc ao criar profissional no Firestore:', error?.message || error);
+    console.error('[Equipe Firestore] CREATE ERROR', {
+      code: error?.code || 'unknown',
+      message: error?.message || String(error),
+      operation: 'create',
+      path: COLLECTION_PATH,
+    });
     handleFirestoreError(error, OperationType.CREATE, COLLECTION_PATH);
     throw error;
   }
@@ -259,7 +293,8 @@ export async function updateFirestoreProfessional(
     if (updates.serviceConfigs !== undefined) payload.serviceConfigs = updates.serviceConfigs;
     if (updates.schedule !== undefined) payload.schedule = updates.schedule;
 
-    await updateDoc(docRef, payload);
+    const cleanPayload = sanitizePayloadForFirestore(payload);
+    await updateDoc(docRef, cleanPayload);
     console.info(`[Equipe Firestore] SUCESSO! Profissional "${id}" atualizado no Firestore.`);
   } catch (error: any) {
     console.error(`[Equipe Firestore] ERRO ao atualizar profissional "${id}" no Firestore:`, error?.message || error);

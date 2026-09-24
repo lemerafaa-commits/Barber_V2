@@ -511,7 +511,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
             )}
           </div>
         ) : mainSpace === 'equipe' ? (
-          <AdminTeam services={services} businessId={businessProfile.businessId || 'joao-barber'} />
+          <AdminTeam
+            services={services}
+            businessId={businessProfile.businessId || 'joao-barber'}
+            onRefreshServices={fetchServices}
+          />
         ) : (
           <>
             {/* Action error notification if any operation fails */}

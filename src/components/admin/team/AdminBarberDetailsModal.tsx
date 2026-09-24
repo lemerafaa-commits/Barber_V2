@@ -43,9 +43,28 @@ export const AdminBarberDetailsModal: React.FC<AdminBarberDetailsModalProps> = (
     year: 'numeric',
   });
 
-  // Resolve custom services
-  const customServices = barber.serviceMode === 'custom'
-    ? services.filter((s) => barber.serviceIds.includes(s.id))
+  // Resolve custom services with catalog and duration configs
+  const resolvedServices = barber.serviceMode === 'custom'
+    ? barber.serviceIds.map((id) => {
+        const catalogService = services.find((s) => s.id === id);
+        const config = barber.serviceConfigs?.find((c) => c.serviceId === id);
+        const name = catalogService?.name || config?.serviceName || 'Serviço';
+        const price = catalogService ? catalogService.price : null;
+        const isCustomDuration = config?.durationMode === 'custom' && typeof config.customDurationMinutes === 'number';
+        const duration = isCustomDuration
+          ? config!.customDurationMinutes!
+          : catalogService?.durationMinutes || 30;
+        const isInactive = catalogService && catalogService.active === false;
+
+        return {
+          id,
+          name,
+          price,
+          duration,
+          isCustomDuration,
+          isInactive,
+        };
+      })
     : [];
 
   return (
@@ -135,7 +154,7 @@ export const AdminBarberDetailsModal: React.FC<AdminBarberDetailsModalProps> = (
             <span className="text-[11px] text-zinc-500">
               {barber.serviceMode === 'all'
                 ? 'Todos os serviços da barbearia'
-                : `${customServices.length} serviço(s) específico(s)`}
+                : `${resolvedServices.length} serviço(s) específico(s)`}
             </span>
           </div>
 
@@ -148,16 +167,34 @@ export const AdminBarberDetailsModal: React.FC<AdminBarberDetailsModalProps> = (
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {customServices.map((service) => (
+              {resolvedServices.map((service) => (
                 <div
                   key={service.id}
                   className="p-2.5 rounded-xl bg-zinc-950/50 border border-zinc-800/80 flex items-center justify-between text-xs"
                 >
-                  <span className="font-medium text-zinc-200">{service.name}</span>
-                  <span className="text-amber-400 font-bold">R$ {service.price.toFixed(2)}</span>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-zinc-200">{service.name}</span>
+                      {service.isInactive && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
+                          Inativo
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-zinc-400 flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3 text-zinc-500" />
+                      <span>{service.duration} min</span>
+                      {service.isCustomDuration && (
+                        <span className="text-[10px] text-amber-400 font-medium">(personalizado)</span>
+                      )}
+                    </div>
+                  </div>
+                  {service.price !== null && (
+                    <span className="text-amber-400 font-bold">R$ {service.price.toFixed(2)}</span>
+                  )}
                 </div>
               ))}
-              {customServices.length === 0 && (
+              {resolvedServices.length === 0 && (
                 <div className="p-3 rounded-xl bg-zinc-950 text-zinc-500 text-xs col-span-2 text-center">
                   Nenhum serviço personalizado associado.
                 </div>

@@ -156,14 +156,16 @@ service cloud.firestore {
     }
 
     match /professionals/{professionalId} {
-      // Public read for customer booking and admin dashboard
-      allow read: if true;
+      // Allow read ONLY for authenticated users (administrative access)
+      allow read: if request.auth != null;
 
-      // Allow creation of valid professionals
-      allow create: if isValidProfessional(request.resource.data);
+      // Allow creation ONLY for authenticated users with valid professional data
+      allow create: if request.auth != null
+        && isValidProfessional(request.resource.data);
 
-      // Allow update of professionals maintaining businessId integrity
-      allow update: if isValidProfessionalUpdate(resource.data, request.resource.data);
+      // Allow update ONLY for authenticated users maintaining businessId integrity
+      allow update: if request.auth != null
+        && isValidProfessionalUpdate(resource.data, request.resource.data);
 
       // Physical deletion prohibited (soft delete using status: inactive)
       allow delete: if false;

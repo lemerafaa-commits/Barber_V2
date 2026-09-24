@@ -30,9 +30,14 @@ import { AdminBarberDeactivateModal } from './AdminBarberDeactivateModal';
 interface AdminTeamProps {
   services: AdminService[];
   businessId?: string;
+  onRefreshServices?: () => Promise<void>;
 }
 
-export const AdminTeam: React.FC<AdminTeamProps> = ({ services, businessId = 'joao-barber' }) => {
+export const AdminTeam: React.FC<AdminTeamProps> = ({
+  services,
+  businessId = 'joao-barber',
+  onRefreshServices,
+}) => {
   const [barbers, setBarbers] = useState<Barber[]>(MOCK_BARBERS);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -46,6 +51,15 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({ services, businessId = 'jo
   const [detailsBarber, setDetailsBarber] = useState<Barber | null>(null);
 
   const [deactivatingBarber, setDeactivatingBarber] = useState<Barber | null>(null);
+
+  // Refresh services on mount if handler provided
+  useEffect(() => {
+    if (onRefreshServices) {
+      onRefreshServices().catch((err) => {
+        console.warn('[AdminTeam] Aviso ao atualizar catálogo de serviços:', err);
+      });
+    }
+  }, [onRefreshServices]);
 
   useEffect(() => {
     let isMounted = true;
@@ -121,7 +135,26 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({ services, businessId = 'jo
       }
     } catch (err: any) {
       console.error('[Equipe UI] Erro ao salvar profissional:', err);
-      setActionError('Não foi possível salvar o profissional no banco de dados. Tente novamente.');
+      let errorMsg = 'Não foi possível salvar o profissional no banco de dados.';
+      try {
+        const parsed = JSON.parse(err.message);
+        if (parsed?.error) {
+          if (
+            parsed.error.includes('Missing or insufficient permissions') ||
+            parsed.error.includes('permission-denied')
+          ) {
+            errorMsg =
+              'Permissão negada no Firestore (permission-denied): As regras para a coleção /professionals precisam ser atualizadas no Firebase Console.';
+          } else {
+            errorMsg = `Erro Firestore: ${parsed.error}`;
+          }
+        }
+      } catch {
+        if (err?.message) {
+          errorMsg = `Erro: ${err.message}`;
+        }
+      }
+      setActionError(errorMsg);
     }
   };
 
