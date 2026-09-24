@@ -7,7 +7,7 @@ import {
   doc,
   writeBatch
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './config';
+import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
 import { Service } from '../../types/booking';
 import { AdminAppointment, AdminServiceItem, AppointmentStatus } from '../../types/admin';
 
@@ -138,6 +138,14 @@ export async function createFirestoreAppointment(
     whatsappOptIn: input.whatsappOptIn === true,
   };
 
+  if (!isFirebaseConfigured || !db) {
+    const mockId = 'preview-' + Math.random().toString(36).substring(2, 9);
+    return {
+      id: mockId,
+      ...docPayload,
+    };
+  }
+
   try {
     const aptDocRef = doc(collection(db, collectionPath));
     const busySlotDocRef = doc(db, 'busy_slots', aptDocRef.id);
@@ -174,6 +182,10 @@ export async function getFirestoreAppointmentsByDate(
   date: string,
   businessId = 'joao-barber'
 ): Promise<FirestoreAppointmentRecord[]> {
+  if (!isFirebaseConfigured || !db) {
+    return [];
+  }
+
   try {
     // 1. Query the anonymous, zero-PII busy_slots collection
     const qSlots = query(
@@ -242,6 +254,10 @@ export async function getFirestoreAppointmentsByDate(
 export async function getFirestoreAppointmentsForAdmin(
   businessId = 'joao-barber'
 ): Promise<AdminAppointment[]> {
+  if (!isFirebaseConfigured || !db) {
+    return [];
+  }
+
   const collectionPath = 'appointments';
   try {
     const q = query(
@@ -275,6 +291,10 @@ export async function updateFirestoreAppointmentStatus(
   appointmentId: string,
   status: 'cancelled' | 'completed'
 ): Promise<{ success: boolean; error?: string }> {
+  if (!isFirebaseConfigured || !db) {
+    return { success: true };
+  }
+
   const collectionPath = 'appointments';
   try {
     const batch = writeBatch(db);

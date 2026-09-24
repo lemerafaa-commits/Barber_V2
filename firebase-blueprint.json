@@ -222,6 +222,79 @@
         "duration",
         "status"
       ]
+    },
+    "Professional": {
+      "title": "Professional",
+      "description": "Barbershop team professional/barber profile, service permissions, and individual weekly working schedule",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Firestore document ID"
+        },
+        "businessId": {
+          "type": "string",
+          "description": "Barbershop tenant ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Professional full name",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Avatar or photo image URL"
+        },
+        "whatsapp": {
+          "type": "string",
+          "description": "Contact WhatsApp phone number"
+        },
+        "email": {
+          "type": "string",
+          "description": "Optional email address"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "inactive"]
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Convenience boolean matching active status"
+        },
+        "serviceMode": {
+          "type": "string",
+          "enum": ["all", "custom"]
+        },
+        "serviceIds": {
+          "type": "array",
+          "description": "List of enabled service IDs"
+        },
+        "serviceConfigs": {
+          "type": "array",
+          "description": "Per-service custom duration configurations"
+        },
+        "schedule": {
+          "type": "array",
+          "description": "Weekly day-by-day working hours and breaks schedule"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": [
+        "businessId",
+        "name",
+        "whatsapp",
+        "status",
+        "serviceMode",
+        "schedule"
+      ]
     }
   },
   "firestore": {
@@ -240,6 +313,10 @@
     "/services/{serviceId}": {
       "schema": "Service",
       "description": "Collection of all services offered by the barbershop"
+    },
+    "/professionals/{professionalId}": {
+      "schema": "Professional",
+      "description": "Collection of barbershop professionals with schedules, permissions, and service durations"
     }
   }
 }

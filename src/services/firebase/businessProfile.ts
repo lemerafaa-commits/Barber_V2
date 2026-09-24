@@ -4,7 +4,7 @@ import {
   setDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './config';
+import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
 import { BusinessProfile } from '../../types/businessProfile';
 
 export const CANONICAL_BUSINESS_ID = 'joao-barber';
@@ -110,6 +110,13 @@ export function normalizeBusinessProfile(
 export async function getFirestoreBusinessProfile(
   businessId = CANONICAL_BUSINESS_ID
 ): Promise<BusinessProfile> {
+  if (!isFirebaseConfigured || !db) {
+    return {
+      ...DEFAULT_BUSINESS_PROFILE,
+      businessId,
+    };
+  }
+
   const docPath = `businesses/${businessId}`;
   try {
     const docRef = doc(db, 'businesses', businessId);
@@ -141,6 +148,14 @@ export async function saveFirestoreBusinessProfile(
   businessId = CANONICAL_BUSINESS_ID,
   updates: Partial<BusinessProfile>
 ): Promise<BusinessProfile> {
+  if (!isFirebaseConfigured || !db) {
+    return {
+      ...DEFAULT_BUSINESS_PROFILE,
+      ...updates,
+      businessId,
+    };
+  }
+
   const docPath = `businesses/${businessId}`;
   try {
     const cleanUpdates: Record<string, any> = {

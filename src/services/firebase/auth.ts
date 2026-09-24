@@ -5,12 +5,16 @@ import {
   User,
   AuthError,
 } from 'firebase/auth';
-import { auth } from './config';
+import { auth, isFirebaseConfigured } from './config';
 
 /**
  * Realiza autenticação do administrador usando Firebase Authentication (Email/Senha).
  */
 export async function signInAdmin(email: string, pass: string): Promise<User> {
+  if (!isFirebaseConfigured || !auth) {
+    throw new Error('Autenticação indisponível no ambiente de demonstração/preview. Configure VITE_FIREBASE_API_KEY para autenticar.');
+  }
+
   try {
     const credential = await signInWithEmailAndPassword(auth, email.trim(), pass);
     return credential.user;
@@ -49,6 +53,9 @@ export async function signInAdmin(email: string, pass: string): Promise<User> {
  * Encerra a sessão ativa do administrador no Firebase Auth.
  */
 export async function signOutAdmin(): Promise<void> {
+  if (!isFirebaseConfigured || !auth) {
+    return;
+  }
   await signOut(auth);
 }
 
@@ -56,6 +63,11 @@ export async function signOutAdmin(): Promise<void> {
  * Inscreve um listener para observar alterações de estado de autenticação em tempo real.
  */
 export function subscribeToAuthChanges(callback: (user: User | null) => void): () => void {
+  if (!isFirebaseConfigured || !auth) {
+    // Retorno seguro imediato para ambiente de preview/sem Firebase
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }
 
@@ -63,5 +75,8 @@ export function subscribeToAuthChanges(callback: (user: User | null) => void): (
  * Retorna o usuário administrador atualmente autenticado, se houver.
  */
 export function getCurrentAdminUser(): User | null {
+  if (!isFirebaseConfigured || !auth) {
+    return null;
+  }
   return auth.currentUser;
 }

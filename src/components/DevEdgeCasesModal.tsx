@@ -9,6 +9,8 @@ interface DevEdgeCasesModalProps {
   fullyBookedMode: boolean;
   onToggleFullyBookedMode: (val: boolean) => void;
   onResetState: () => void;
+  onNavigateTo?: (path: string) => void;
+  currentPath?: string;
 }
 
 export const DevEdgeCasesModal: React.FC<DevEdgeCasesModalProps> = ({
@@ -19,6 +21,8 @@ export const DevEdgeCasesModal: React.FC<DevEdgeCasesModalProps> = ({
   fullyBookedMode,
   onToggleFullyBookedMode,
   onResetState,
+  onNavigateTo,
+  currentPath,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -116,6 +120,59 @@ export const DevEdgeCasesModal: React.FC<DevEdgeCasesModalProps> = ({
                 />
               </label>
             </div>
+
+            {/* Quick Navigation Between Platform Areas */}
+            {onNavigateTo && (
+              <div className="pt-2 border-t border-zinc-800 space-y-2">
+                <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                  Navegar entre Áreas (Ambiente de Testes)
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigateTo('/');
+                      setIsOpen(false);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-colors ${
+                      currentPath === '/'
+                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                    }`}
+                  >
+                    / (Cliente)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigateTo('/admin');
+                      setIsOpen(false);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-colors ${
+                      currentPath?.startsWith('/admin')
+                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                    }`}
+                  >
+                    /admin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigateTo('/master');
+                      setIsOpen(false);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-colors ${
+                      currentPath?.startsWith('/master')
+                        ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                    }`}
+                  >
+                    /master
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="pt-2 flex gap-2">
               <button

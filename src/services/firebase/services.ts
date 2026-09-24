@@ -10,7 +10,7 @@ import {
   updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './config';
+import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
 import { AdminService, ServiceCategoryId } from '../../types/admin';
 import { ServiceCategory } from '../../types/booking';
 import {
@@ -75,6 +75,10 @@ export function normalizeFirestoreService(docId: string, data: Record<string, an
 export async function seedInitialServicesIfEmpty(
   businessId = CANONICAL_BUSINESS_ID
 ): Promise<AdminService[]> {
+  if (!isFirebaseConfigured || !db) {
+    return [];
+  }
+
   const collectionPath = 'services';
   try {
     const createdServices: AdminService[] = [];
@@ -118,6 +122,10 @@ export async function seedInitialServicesIfEmpty(
 export async function getFirestoreServices(
   businessId = CANONICAL_BUSINESS_ID
 ): Promise<AdminService[]> {
+  if (!isFirebaseConfigured || !db) {
+    return [];
+  }
+
   const collectionPath = 'services';
   try {
     const q = query(
@@ -182,6 +190,10 @@ export async function createFirestoreService(
     throw new Error(firstError);
   }
 
+  if (!isFirebaseConfigured || !db) {
+    throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
+  }
+
   try {
     const categoryDef = DEFAULT_SERVICE_CATEGORIES.find((c) => c.id === serviceData.categoryId);
     const categoryName = categoryDef?.name || serviceData.categoryId;
@@ -243,6 +255,10 @@ export async function updateFirestoreService(
     }
   }
 
+  if (!isFirebaseConfigured || !db) {
+    throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
+  }
+
   try {
     const docRef = doc(db, 'services', serviceId);
 
@@ -278,6 +294,10 @@ export async function toggleFirestoreServiceActive(
   serviceId: string,
   nextActiveState: boolean
 ): Promise<void> {
+  if (!isFirebaseConfigured || !db) {
+    throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
+  }
+
   const docPath = `services/${serviceId}`;
   try {
     const docRef = doc(db, 'services', serviceId);

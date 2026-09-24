@@ -16,6 +16,7 @@ import {
   History,
   Layers,
   LogOut,
+  Users,
 } from 'lucide-react';
 import { AdminAppointment, AdminService } from '../../types/admin';
 import { MOCK_ADMIN_APPOINTMENTS } from '../../data/adminMockData';
@@ -57,7 +58,9 @@ import { AppointmentCalendar } from './appointments/AppointmentCalendar';
 import { HistoryAppointmentsSection } from './appointments/HistoryAppointmentsSection';
 import { AppointmentConfirmationModal, AppointmentActionType } from './appointments/AppointmentConfirmationModal';
 import { ServicesHub } from './services/ServicesHub';
+import { AdminTeam } from './team/AdminTeam';
 import { signOutAdmin } from '../../services/firebase/auth';
+import { isFirebaseConfigured } from '../../services/firebase/config';
 
 interface AdminDashboardProps {
   onGoToPublicPage?: () => void;
@@ -65,9 +68,11 @@ interface AdminDashboardProps {
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage, onLogout }) => {
-  // Appointments state initialized with empty array, loaded from Firestore
-  const [appointments, setAppointments] = useState<AdminAppointment[]>([]);
-  const [isLoadingAppointments, setIsLoadingAppointments] = useState(true);
+  // Appointments state initialized with mock data if Firebase is not configured, or empty array while loading from Firestore
+  const [appointments, setAppointments] = useState<AdminAppointment[]>(() =>
+    !isFirebaseConfigured ? MOCK_ADMIN_APPOINTMENTS : []
+  );
+  const [isLoadingAppointments, setIsLoadingAppointments] = useState(isFirebaseConfigured);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -77,8 +82,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
     appointment: AdminAppointment;
   } | null>(null);
 
-  // Main space navigation: Agendamentos vs Meus Serviços vs Minha Barbearia
-  const [mainSpace, setMainSpace] = useState<'agendamentos' | 'meus-servicos' | 'minha-barbearia'>('agendamentos');
+  // Main space navigation: Agendamentos vs Meus Serviços vs Minha Barbearia vs Equipe
+  const [mainSpace, setMainSpace] = useState<'agendamentos' | 'meus-servicos' | 'minha-barbearia' | 'equipe'>('agendamentos');
 
   // Services state initialized with domain mock services, populated from Firestore
   const [services, setServices] = useState<AdminService[]>(INITIAL_ADMIN_SERVICES);
@@ -104,6 +109,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
 
   // Fetch real services from Firestore
   const fetchServices = async () => {
+    if (!isFirebaseConfigured) return;
     setIsLoadingServices(true);
     try {
       const firestoreServices = await getFirestoreServices('joao-barber');
@@ -125,6 +131,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
   // Load real appointments from Firestore
   useEffect(() => {
     async function fetchAppointments() {
+      if (!isFirebaseConfigured) {
+        setAppointments(MOCK_ADMIN_APPOINTMENTS);
+        setIsLoadingAppointments(false);
+        return;
+      }
       setIsLoadingAppointments(true);
       try {
         const realAppointments = await getFirestoreAppointmentsForAdmin('joao-barber');
@@ -284,11 +295,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
       <header className="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-amber-500 font-black tracking-wider text-xs uppercase px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
                 PAINEL DO BARBEIRO
               </span>
               <span className="text-xs text-zinc-400 font-mono">/admin</span>
+              {!isFirebaseConfigured && (
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Modo demonstração
+                </span>
+              )}
             </div>
             <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white font-['Montserrat',sans-serif] mt-1 flex items-center gap-2">
               <span>{businessProfile.name || 'Barbearia'}</span>
@@ -323,12 +340,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
               id="admin-logout-btn"
               type="button"
               onClick={async () => {
-                try {
-                  await signOutAdmin();
-                  if (onLogout) onLogout();
-                } catch (e) {
-                  console.error('Erro ao encerrar sessão:', e);
+                if (isFirebaseConfigured) {
+                  try {
+                    await signOutAdmin();
+                  } catch (e) {
+                    console.error('Erro ao encerrar sessão:', e);
+                  }
                 }
+                if (onLogout) onLogout();
               }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/30 text-zinc-400 hover:text-red-400 text-xs font-semibold transition-colors cursor-pointer"
               title="Sair do painel administrativo"
@@ -386,6 +405,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
             >
               <Store className="w-4 h-4" />
               <span>Minha Barbearia</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMainSpace('equipe');
+              }}
+              className={`inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
+                mainSpace === 'equipe'
+                  ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Equipe</span>
             </button>
           </div>
 
@@ -476,6 +510,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
               />
             )}
           </div>
+        ) : mainSpace === 'equipe' ? (
+          <AdminTeam services={services} businessId={businessProfile.businessId || 'joao-barber'} />
         ) : (
           <>
             {/* Action error notification if any operation fails */}

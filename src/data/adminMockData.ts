@@ -1,4 +1,4 @@
-import { AdminAppointment } from '../types/admin';
+import { AdminAppointment, Barber, DaySchedule } from '../types/admin';
 
 // Generate ISO date strings dynamically relative to today
 const now = new Date();
@@ -236,6 +236,107 @@ export const MOCK_ADMIN_APPOINTMENTS: AdminAppointment[] = [
     duration: 45,
     status: 'confirmed',
     createdAt: new Date().toISOString(),
+  },
+];
+
+export const DEFAULT_WEEKLY_SCHEDULE: DaySchedule[] = [
+  { dayOfWeek: 1, dayName: 'Segunda', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+  { dayOfWeek: 2, dayName: 'Terça', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+  { dayOfWeek: 3, dayName: 'Quarta', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+  { dayOfWeek: 4, dayName: 'Quinta', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+  { dayOfWeek: 5, dayName: 'Sexta', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+  { dayOfWeek: 6, dayName: 'Sábado', isDayOff: false, startTime: '08:00', endTime: '14:00', breakStartTime: '', breakEndTime: '' },
+  { dayOfWeek: 0, dayName: 'Domingo', isDayOff: true, startTime: '08:00', endTime: '12:00', breakStartTime: '', breakEndTime: '' },
+];
+
+export const MOCK_BARBERS: Barber[] = [
+  {
+    id: 'barber-001',
+    businessId: 'joao-barber',
+    name: 'João Silva',
+    photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+    whatsapp: '(15) 99876-5432',
+    email: 'joao@barbeariasilva.com.br',
+    status: 'active',
+    serviceMode: 'all',
+    serviceIds: [],
+    schedule: [
+      { dayOfWeek: 1, dayName: 'Segunda', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 2, dayName: 'Terça', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 3, dayName: 'Quarta', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 4, dayName: 'Quinta', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 5, dayName: 'Sexta', isDayOff: false, startTime: '08:00', endTime: '18:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 6, dayName: 'Sábado', isDayOff: false, startTime: '08:00', endTime: '14:00', breakStartTime: '', breakEndTime: '' },
+      { dayOfWeek: 0, dayName: 'Domingo', isDayOff: true, startTime: '08:00', endTime: '12:00', breakStartTime: '', breakEndTime: '' },
+    ],
+    createdAt: '2024-01-10T10:00:00.000Z',
+  },
+  {
+    id: 'barber-002',
+    businessId: 'joao-barber',
+    name: 'Matheus Oliveira',
+    photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=250&q=80',
+    whatsapp: '(15) 99123-4567',
+    email: 'matheus.barber@gmail.com',
+    status: 'active',
+    serviceMode: 'custom',
+    serviceIds: ['serv-corte-masculino', 'serv-combo-corte-barba'],
+    serviceConfigs: [
+      { serviceId: 'serv-corte-masculino', durationMode: 'default', customDurationMinutes: null },
+      { serviceId: 'serv-combo-corte-barba', durationMode: 'custom', customDurationMinutes: 50 },
+    ],
+    schedule: [
+      { dayOfWeek: 1, dayName: 'Segunda', isDayOff: true, startTime: '09:00', endTime: '19:00', breakStartTime: '13:00', breakEndTime: '14:00', breaks: [] },
+      { dayOfWeek: 2, dayName: 'Terça', isDayOff: false, startTime: '09:00', endTime: '19:00', breakStartTime: '13:00', breakEndTime: '14:00', breaks: [{ startTime: '13:00', endTime: '14:00' }] },
+      { dayOfWeek: 3, dayName: 'Quarta', isDayOff: false, startTime: '09:00', endTime: '19:00', breakStartTime: '12:30', breakEndTime: '13:30', breaks: [{ startTime: '12:30', endTime: '13:30' }, { startTime: '16:00', endTime: '16:30' }] },
+      { dayOfWeek: 4, dayName: 'Quinta', isDayOff: false, startTime: '09:00', endTime: '19:00', breakStartTime: '13:00', breakEndTime: '14:00', breaks: [{ startTime: '13:00', endTime: '14:00' }] },
+      { dayOfWeek: 5, dayName: 'Sexta', isDayOff: false, startTime: '09:00', endTime: '19:00', breakStartTime: '13:00', breakEndTime: '14:00', breaks: [{ startTime: '13:00', endTime: '14:00' }] },
+      { dayOfWeek: 6, dayName: 'Sábado', isDayOff: false, startTime: '08:00', endTime: '16:00', breakStartTime: '12:00', breakEndTime: '13:00', breaks: [{ startTime: '12:00', endTime: '13:00' }] },
+      { dayOfWeek: 0, dayName: 'Domingo', isDayOff: true, startTime: '09:00', endTime: '14:00', breakStartTime: '', breakEndTime: '', breaks: [] },
+    ],
+    createdAt: '2024-03-15T14:30:00.000Z',
+  },
+  {
+    id: 'barber-003',
+    businessId: 'joao-barber',
+    name: 'Lucas Santana',
+    photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=250&q=80',
+    whatsapp: '(15) 98877-6655',
+    email: 'lucas.santana@outlook.com',
+    status: 'active',
+    serviceMode: 'all',
+    serviceIds: [],
+    schedule: [
+      { dayOfWeek: 1, dayName: 'Segunda', isDayOff: false, startTime: '10:00', endTime: '20:00', breakStartTime: '14:00', breakEndTime: '15:00' },
+      { dayOfWeek: 2, dayName: 'Terça', isDayOff: true, startTime: '10:00', endTime: '20:00', breakStartTime: '14:00', breakEndTime: '15:00' },
+      { dayOfWeek: 3, dayName: 'Quarta', isDayOff: false, startTime: '10:00', endTime: '20:00', breakStartTime: '14:00', breakEndTime: '15:00' },
+      { dayOfWeek: 4, dayName: 'Quinta', isDayOff: false, startTime: '10:00', endTime: '20:00', breakStartTime: '14:00', breakEndTime: '15:00' },
+      { dayOfWeek: 5, dayName: 'Sexta', isDayOff: false, startTime: '10:00', endTime: '20:00', breakStartTime: '14:00', breakEndTime: '15:00' },
+      { dayOfWeek: 6, dayName: 'Sábado', isDayOff: false, startTime: '09:00', endTime: '18:00', breakStartTime: '13:00', breakEndTime: '14:00' },
+      { dayOfWeek: 0, dayName: 'Domingo', isDayOff: true, startTime: '09:00', endTime: '14:00', breakStartTime: '', breakEndTime: '' },
+    ],
+    createdAt: '2024-06-01T09:15:00.000Z',
+  },
+  {
+    id: 'barber-004',
+    businessId: 'joao-barber',
+    name: 'Guilherme Rocha',
+    photoUrl: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=250&q=80',
+    whatsapp: '(15) 97766-5544',
+    email: 'gui.rocha@hotmail.com',
+    status: 'inactive',
+    serviceMode: 'custom',
+    serviceIds: ['serv-barba-tradicional'],
+    schedule: [
+      { dayOfWeek: 1, dayName: 'Segunda', isDayOff: false, startTime: '08:00', endTime: '17:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 2, dayName: 'Terça', isDayOff: false, startTime: '08:00', endTime: '17:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 3, dayName: 'Quarta', isDayOff: false, startTime: '08:00', endTime: '17:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 4, dayName: 'Quinta', isDayOff: false, startTime: '08:00', endTime: '17:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 5, dayName: 'Sexta', isDayOff: false, startTime: '08:00', endTime: '17:00', breakStartTime: '12:00', breakEndTime: '13:00' },
+      { dayOfWeek: 6, dayName: 'Sábado', isDayOff: true, startTime: '08:00', endTime: '14:00', breakStartTime: '', breakEndTime: '' },
+      { dayOfWeek: 0, dayName: 'Domingo', isDayOff: true, startTime: '08:00', endTime: '12:00', breakStartTime: '', breakEndTime: '' },
+    ],
+    createdAt: '2024-02-20T11:00:00.000Z',
   },
 ];
 

@@ -9,8 +9,10 @@ import { BarbershopInfoFooter } from './components/BarbershopInfoFooter';
 import { DevEdgeCasesModal } from './components/DevEdgeCasesModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLogin } from './components/admin/AdminLogin';
+import { MasterDashboard } from './components/master/MasterDashboard';
 import { User } from 'firebase/auth';
 import { subscribeToAuthChanges } from './services/firebase/auth';
+import { isFirebaseConfigured } from './services/firebase/config';
 import { Loader2 } from 'lucide-react';
 
 import {
@@ -373,32 +375,54 @@ export default function App() {
 
   // Render Admin space if path is /admin
   if (currentPath.startsWith('/admin')) {
-    if (isAuthChecking) {
-      return (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
-          <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-          <span className="text-xs text-zinc-400 font-medium">Verificando autorização...</span>
-        </div>
-      );
-    }
+    // Quando o Firebase está configurado no ambiente (Produção / Staging),
+    // o acesso é estritamente protegido pelo Firebase Authentication real.
+    if (isFirebaseConfigured) {
+      if (isAuthChecking) {
+        return (
+          <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+            <span className="text-xs text-zinc-400 font-medium">Verificando autorização...</span>
+          </div>
+        );
+      }
 
-    if (!adminUser) {
+      if (!adminUser) {
+        return (
+          <AdminLogin
+            onLoginSuccess={() => {
+              // State automatically transitions via onAuthStateChanged
+            }}
+            onGoToPublicPage={() => navigateTo('/')}
+          />
+        );
+      }
+
       return (
-        <AdminLogin
-          onLoginSuccess={() => {
-            // State automatically transitions via onAuthStateChanged
-          }}
+        <AdminDashboard
           onGoToPublicPage={() => navigateTo('/')}
+          onLogout={() => {
+            // Handled via onAuthStateChanged, user state resets to null
+          }}
         />
       );
     }
 
+    // Modo Demonstração exclusivo para ambiente onde o Firebase não está configurado (Preview do Google AI Studio)
     return (
       <AdminDashboard
         onGoToPublicPage={() => navigateTo('/')}
-        onLogout={() => {
-          // Handled via onAuthStateChanged, user state resets to null
-        }}
+        onLogout={() => navigateTo('/')}
+      />
+    );
+  }
+
+  // Render Master Dashboard if path is /master (UI/UX phase, direct evaluation)
+  if (currentPath.startsWith('/master')) {
+    return (
+      <MasterDashboard
+        onNavigateHome={() => navigateTo('/')}
+        onNavigateAdmin={() => navigateTo('/admin')}
       />
     );
   }
@@ -496,6 +520,8 @@ export default function App() {
         fullyBookedMode={fullyBookedMode}
         onToggleFullyBookedMode={setFullyBookedMode}
         onResetState={handleReset}
+        onNavigateTo={navigateTo}
+        currentPath={currentPath}
       />
     </div>
   );

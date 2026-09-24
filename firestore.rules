@@ -134,6 +134,41 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    function isValidProfessional(data) {
+      return data.keys().hasAll(['businessId', 'name', 'whatsapp', 'status', 'serviceMode'])
+        && data.businessId is string && data.businessId.size() > 0 && data.businessId.size() <= 64
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.whatsapp is string && data.whatsapp.size() >= 4 && data.whatsapp.size() <= 30
+        && (!('email' in data) || (data.email is string && data.email.size() <= 100))
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 2000))
+        && data.status in ['active', 'inactive']
+        && data.serviceMode in ['all', 'custom'];
+    }
+
+    function isValidProfessionalUpdate(existingData, incomingData) {
+      return incomingData.businessId == existingData.businessId
+        && (!('name' in incomingData) || (incomingData.name is string && incomingData.name.size() >= 1 && incomingData.name.size() <= 100))
+        && (!('whatsapp' in incomingData) || (incomingData.whatsapp is string && incomingData.whatsapp.size() >= 4 && incomingData.whatsapp.size() <= 30))
+        && (!('email' in incomingData) || (incomingData.email is string && incomingData.email.size() <= 100))
+        && (!('photoUrl' in incomingData) || (incomingData.photoUrl is string && incomingData.photoUrl.size() <= 2000))
+        && (!('status' in incomingData) || incomingData.status in ['active', 'inactive'])
+        && (!('serviceMode' in incomingData) || incomingData.serviceMode in ['all', 'custom']);
+    }
+
+    match /professionals/{professionalId} {
+      // Public read for customer booking and admin dashboard
+      allow read: if true;
+
+      // Allow creation of valid professionals
+      allow create: if isValidProfessional(request.resource.data);
+
+      // Allow update of professionals maintaining businessId integrity
+      allow update: if isValidProfessionalUpdate(resource.data, request.resource.data);
+
+      // Physical deletion prohibited (soft delete using status: inactive)
+      allow delete: if false;
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;
