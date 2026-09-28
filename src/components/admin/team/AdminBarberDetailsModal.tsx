@@ -14,6 +14,7 @@ import {
   Coffee,
 } from 'lucide-react';
 import { Barber, AdminService } from '../../../types/admin';
+import { getEffectiveServiceDuration, isValidCustomDuration } from '../../../utils/duration';
 
 interface AdminBarberDetailsModalProps {
   barber: Barber;
@@ -50,10 +51,8 @@ export const AdminBarberDetailsModal: React.FC<AdminBarberDetailsModalProps> = (
         const config = barber.serviceConfigs?.find((c) => c.serviceId === id);
         const name = catalogService?.name || config?.serviceName || 'Serviço';
         const price = catalogService ? catalogService.price : null;
-        const isCustomDuration = config?.durationMode === 'custom' && typeof config.customDurationMinutes === 'number';
-        const duration = isCustomDuration
-          ? config!.customDurationMinutes!
-          : catalogService?.durationMinutes || 30;
+        const isCustomDuration = config?.durationMode === 'custom' && isValidCustomDuration(config?.customDurationMinutes);
+        const duration = getEffectiveServiceDuration(catalogService, config);
         const isInactive = catalogService && catalogService.active === false;
 
         return {
