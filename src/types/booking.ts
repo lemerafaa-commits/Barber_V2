@@ -96,6 +96,8 @@ export interface Appointment {
   services: Service[];
   service: Service;
   professional: Professional;
+  professionalId?: string;
+  professionalName?: string;
   dateString: string; // YYYY-MM-DD
   formattedDate: string; // "Quinta-feira, 13 de agosto"
   time: string; // "14:30"

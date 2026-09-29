@@ -8,13 +8,14 @@ import { getAuth, Auth } from 'firebase/auth';
  * VITE_FIREBASE_API_KEY pode não estar definida.
  */
 export const isFirebaseConfigured: boolean = Boolean(
-  import.meta.env.VITE_FIREBASE_API_KEY &&
+  typeof import.meta !== 'undefined' &&
+  import.meta.env?.VITE_FIREBASE_API_KEY &&
   typeof import.meta.env.VITE_FIREBASE_API_KEY === 'string' &&
   import.meta.env.VITE_FIREBASE_API_KEY.trim().length > 0
 );
 
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  apiKey: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_API_KEY : undefined,
   authDomain: "saas-barberaria-teste-v1.firebaseapp.com",
   projectId: "saas-barberaria-teste-v1",
   storageBucket: "saas-barberaria-teste-v1.firebasestorage.app",

@@ -144,6 +144,8 @@ export async function createBooking(
     services?: Service[];
     service?: Service | null;
     professional: Professional;
+    professionalId?: string;
+    professionalName?: string;
     selectedDate: DayOption;
     selectedTime: string;
     clientInfo: ClientInfo;
@@ -201,6 +203,8 @@ export async function createBooking(
     time: request.selectedTime,
     services: selectedServices,
     whatsappOptIn: request.clientInfo.whatsappOptIn === true,
+    ...(request.professionalId ? { professionalId: request.professionalId } : {}),
+    ...(request.professionalName ? { professionalName: request.professionalName } : {}),
   });
 
   const randomCode = `#JB-${firestoreRecord.id.slice(-4).toUpperCase()}`;
@@ -212,6 +216,8 @@ export async function createBooking(
     services: selectedServices,
     service: primaryService,
     professional: assignedProfessional,
+    ...(firestoreRecord.professionalId ? { professionalId: firestoreRecord.professionalId } : {}),
+    ...(firestoreRecord.professionalName ? { professionalName: firestoreRecord.professionalName } : {}),
     dateString: request.selectedDate.dateString,
     formattedDate: request.selectedDate.fullFormattedDate,
     time: request.selectedTime,

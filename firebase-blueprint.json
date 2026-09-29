@@ -52,6 +52,16 @@
         "whatsappOptIn": {
           "type": "boolean",
           "description": "Optional customer consent to receive WhatsApp booking confirmation"
+        },
+        "professionalId": {
+          "type": "string",
+          "description": "Optional ID of the assigned real professional/barber",
+          "maxLength": 128
+        },
+        "professionalName": {
+          "type": "string",
+          "description": "Historical snapshot of the professional name at booking time",
+          "maxLength": 100
         }
       },
       "required": [
@@ -213,6 +223,11 @@
         "status": {
           "type": "string",
           "enum": ["confirmed", "cancelled", "completed", "no_show"]
+        },
+        "professionalId": {
+          "type": "string",
+          "description": "Optional ID of the assigned real professional/barber",
+          "maxLength": 128
         }
       },
       "required": [

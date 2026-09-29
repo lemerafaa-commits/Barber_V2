@@ -15,7 +15,9 @@ service cloud.firestore {
       && data.services is list && data.services.size() > 0 && data.services.size() <= 10
       && data.totalPrice is number && data.totalPrice >= 0
       && data.duration is number && data.duration > 0
-      && data.status == 'confirmed';
+      && data.status == 'confirmed'
+      && (!('professionalId' in data) || (data.professionalId is string && data.professionalId.size() > 0 && data.professionalId.size() <= 128))
+      && (!('professionalName' in data) || (data.professionalName is string && data.professionalName.size() > 0 && data.professionalName.size() <= 100));
     }
 
     function isValidStatusUpdate(existingData, incomingData) {
@@ -28,6 +30,8 @@ service cloud.firestore {
         && incomingData.totalPrice == existingData.totalPrice
         && incomingData.duration == existingData.duration
         && incomingData.createdAt == existingData.createdAt
+        && (!('professionalId' in existingData) ? !('professionalId' in incomingData) : ('professionalId' in incomingData && incomingData.professionalId == existingData.professionalId))
+        && (!('professionalName' in existingData) ? !('professionalName' in incomingData) : ('professionalName' in incomingData && incomingData.professionalName == existingData.professionalName))
         && (incomingData.status == 'cancelled' || incomingData.status == 'completed');
     }
 
@@ -37,7 +41,8 @@ service cloud.firestore {
         && data.date is string && data.date.size() == 10
         && data.time is string && data.time.size() >= 4 && data.time.size() <= 5
         && data.duration is number && data.duration > 0
-        && data.status in ['confirmed', 'cancelled', 'completed', 'no_show'];
+        && data.status in ['confirmed', 'cancelled', 'completed', 'no_show']
+        && (!('professionalId' in data) || (data.professionalId is string && data.professionalId.size() > 0 && data.professionalId.size() <= 128));
     }
 
     function isValidBusySlotUpdate(existingData, incomingData) {
@@ -45,6 +50,7 @@ service cloud.firestore {
         && incomingData.date == existingData.date
         && incomingData.time == existingData.time
         && incomingData.duration == existingData.duration
+        && (!('professionalId' in existingData) ? !('professionalId' in incomingData) : ('professionalId' in incomingData && incomingData.professionalId == existingData.professionalId))
         && (incomingData.status == 'cancelled' || incomingData.status == 'completed');
     }
 

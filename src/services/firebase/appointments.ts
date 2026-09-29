@@ -28,6 +28,8 @@ export interface FirestoreAppointmentInput {
   time: string; // HH:mm
   services: Service[];
   whatsappOptIn?: boolean;
+  professionalId?: string;
+  professionalName?: string;
 }
 
 export interface FirestoreAppointmentRecord {
@@ -43,6 +45,8 @@ export interface FirestoreAppointmentRecord {
   status: 'confirmed' | 'cancelled' | 'completed' | 'no_show';
   createdAt: any;
   whatsappOptIn?: boolean;
+  professionalId?: string;
+  professionalName?: string;
 }
 
 /**
@@ -75,9 +79,21 @@ export function firestoreToAdminAppointment(
   const validStatuses: AppointmentStatus[] = ['confirmed', 'in_progress', 'completed', 'cancelled'];
   const status: AppointmentStatus = validStatuses.includes(data.status) ? data.status : 'confirmed';
 
+  const cleanProfessionalId =
+    typeof data.professionalId === 'string' && data.professionalId.trim().length > 0
+      ? data.professionalId.trim()
+      : undefined;
+
+  const cleanProfessionalName =
+    typeof data.professionalName === 'string' && data.professionalName.trim().length > 0
+      ? data.professionalName.trim()
+      : undefined;
+
   return {
     id: docId,
     businessId: data.businessId || 'joao-barber',
+    ...(cleanProfessionalId ? { professionalId: cleanProfessionalId } : {}),
+    ...(cleanProfessionalName ? { professionalName: cleanProfessionalName } : {}),
     customerName: data.customerName || 'Cliente',
     customerPhone: data.customerPhone || '',
     date: data.date || '',
@@ -124,7 +140,17 @@ export async function createFirestoreAppointment(
   const totalPrice = formattedServices.reduce((acc, s) => acc + s.price, 0);
   const duration = formattedServices.reduce((acc, s) => acc + s.duration, 0);
 
-  const docPayload = {
+  const cleanProfessionalId =
+    typeof input.professionalId === 'string' && input.professionalId.trim().length > 0
+      ? input.professionalId.trim()
+      : undefined;
+
+  const cleanProfessionalName =
+    typeof input.professionalName === 'string' && input.professionalName.trim().length > 0
+      ? input.professionalName.trim()
+      : undefined;
+
+  const baseDocPayload = {
     businessId,
     customerName: input.customerName.trim(),
     customerPhone: input.customerPhone.trim(),
@@ -138,11 +164,24 @@ export async function createFirestoreAppointment(
     whatsappOptIn: input.whatsappOptIn === true,
   };
 
+  const docPayload: Record<string, any> = {
+    ...baseDocPayload,
+  };
+
+  if (cleanProfessionalId) {
+    docPayload.professionalId = cleanProfessionalId;
+  }
+  if (cleanProfessionalName) {
+    docPayload.professionalName = cleanProfessionalName;
+  }
+
   if (!isFirebaseConfigured || !db) {
     const mockId = 'preview-' + Math.random().toString(36).substring(2, 9);
     return {
       id: mockId,
-      ...docPayload,
+      ...baseDocPayload,
+      ...(cleanProfessionalId ? { professionalId: cleanProfessionalId } : {}),
+      ...(cleanProfessionalName ? { professionalName: cleanProfessionalName } : {}),
     };
   }
 
@@ -150,22 +189,30 @@ export async function createFirestoreAppointment(
     const aptDocRef = doc(collection(db, collectionPath));
     const busySlotDocRef = doc(db, 'busy_slots', aptDocRef.id);
 
-    const batch = writeBatch(db);
-    batch.set(aptDocRef, docPayload);
-    // Write anonymous slot for public schedule calculation (zero PII)
-    batch.set(busySlotDocRef, {
+    const busySlotPayload: Record<string, any> = {
       businessId,
       date: input.date,
       time: input.time,
       duration,
       status: 'confirmed' as const,
       createdAt: serverTimestamp(),
-    });
+    };
+
+    if (cleanProfessionalId) {
+      busySlotPayload.professionalId = cleanProfessionalId;
+    }
+
+    const batch = writeBatch(db);
+    batch.set(aptDocRef, docPayload);
+    // Write anonymous slot for public schedule calculation (zero PII)
+    batch.set(busySlotDocRef, busySlotPayload);
     await batch.commit();
 
     return {
       id: aptDocRef.id,
-      ...docPayload,
+      ...baseDocPayload,
+      ...(cleanProfessionalId ? { professionalId: cleanProfessionalId } : {}),
+      ...(cleanProfessionalName ? { professionalName: cleanProfessionalName } : {}),
     };
   } catch (error) {
     console.error('[Firestore] Falha na gravação do agendamento:', error);
@@ -202,6 +249,7 @@ export async function getFirestoreAppointmentsByDate(
         records.push({
           id: docSnap.id,
           businessId: data.businessId,
+          ...(data.professionalId ? { professionalId: data.professionalId } : {}),
           customerName: '', // Redacted/Zero PII for public availability
           customerPhone: '', // Redacted/Zero PII for public availability
           date: data.date,
@@ -229,6 +277,8 @@ export async function getFirestoreAppointmentsByDate(
       records.push({
         id: docSnap.id,
         businessId: data.businessId,
+        ...(data.professionalId ? { professionalId: data.professionalId } : {}),
+        ...(data.professionalName ? { professionalName: data.professionalName } : {}),
         customerName: '', // Redacted for public availability
         customerPhone: '', // Redacted for public availability
         date: data.date,
