@@ -39,9 +39,71 @@ function whatsappDevApiPlugin(): Plugin {
   };
 }
 
+function bookingsDevApiPlugin(): Plugin {
+  return {
+    name: 'bookings-dev-api',
+    configureServer(server) {
+      server.middlewares.use('/api/bookings/create', async (req: any, res: any) => {
+        let body = '';
+        req.on('data', (chunk: any) => {
+          body += chunk;
+        });
+
+        req.on('end', async () => {
+          try {
+            let parsedBody: any = body;
+            if (body && typeof body === 'string') {
+              try {
+                parsedBody = JSON.parse(body);
+              } catch {
+                parsedBody = body;
+              }
+            }
+            req.body = parsedBody;
+
+            // Polyfill compatível com Vercel Serverless Function no ambiente local
+            if (typeof res.status !== 'function') {
+              res.status = function (statusCode: number) {
+                res.statusCode = statusCode;
+                return res;
+              };
+            }
+            if (typeof res.json !== 'function') {
+              res.json = function (data: any) {
+                if (!res.headersSent) {
+                  res.setHeader('Content-Type', 'application/json');
+                }
+                res.end(JSON.stringify(data));
+                return res;
+              };
+            }
+
+            const { default: handler } = await import('./api/bookings/create.ts');
+            await handler(req, res);
+          } catch (err: any) {
+            if (!res.writableEnded) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: {
+                    code: 'INTERNAL_ERROR',
+                    message: err?.message || 'Erro interno no middleware local do Vite',
+                  },
+                })
+              );
+            }
+          }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), whatsappDevApiPlugin()],
+    plugins: [react(), tailwindcss(), whatsappDevApiPlugin(), bookingsDevApiPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

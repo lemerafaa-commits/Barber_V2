@@ -5,6 +5,7 @@ import { ServiceSelector } from './components/ServiceSelector';
 import { DateAndTimeSelector } from './components/DateAndTimeSelector';
 import { CustomerForm } from './components/CustomerForm';
 import { BookingConfirmation } from './components/BookingConfirmation';
+import { ProfessionalSelector } from './components/ProfessionalSelector';
 import { BarbershopInfoFooter } from './components/BarbershopInfoFooter';
 import { DevEdgeCasesModal } from './components/DevEdgeCasesModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
@@ -22,7 +23,8 @@ import {
   ServiceCategory,
   DayOption,
   Appointment,
-  Barbershop
+  Barbershop,
+  Professional
 } from './types/booking';
 import { MOCK_BARBERSHOP, MOCK_PROFESSIONALS, MOCK_SERVICE_CATEGORIES } from './data/mockData';
 import {
@@ -38,11 +40,16 @@ import {
   getFirestoreServices,
   adminServicesToBookingCategories,
 } from './services/firebase/services';
+import { getFirestoreProfessionals } from './services/firebase/professionals';
 import {
   loadBusinessProfile,
   businessProfileToBarbershop,
   DEFAULT_BUSINESS_PROFILE
 } from './services/businessProfileData';
+import {
+  calculateTotalEffectiveDuration,
+  extractCandidateServiceIds
+} from './utils/duration';
 import { triggerWhatsAppConfirmation } from './services/notifications/clientNotification';
 
 export default function App() {
@@ -98,6 +105,10 @@ export default function App() {
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>(MOCK_SERVICE_CATEGORIES);
   const [isLoadingServices, setIsLoadingServices] = useState<boolean>(false);
 
+  // Active professionals fetched from Firestore (fallback to MOCK_PROFESSIONALS)
+  const [professionals, setProfessionals] = useState<Professional[]>(MOCK_PROFESSIONALS);
+  const [isLoadingProfessionals, setIsLoadingProfessionals] = useState<boolean>(true);
+
   useEffect(() => {
     async function fetchServices() {
       try {
@@ -117,6 +128,38 @@ export default function App() {
     fetchServices();
   }, []);
 
+  useEffect(() => {
+    async function fetchProfessionals() {
+      try {
+        const firestoreProfessionals = await getFirestoreProfessionals('joao-barber');
+        if (firestoreProfessionals && firestoreProfessionals.length > 0) {
+          const activeOnly = firestoreProfessionals.filter(
+            (p) => p.status === 'active' && p.active !== false
+          );
+          if (activeOnly.length > 0) {
+            const mapped: Professional[] = activeOnly.map((b) => ({
+              id: b.id,
+              name: b.name,
+              role: b.id.includes('joao') ? 'Barbeiro Líder' : 'Barbeiro Especialista',
+              avatarUrl: b.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
+              isAvailable: true,
+              serviceMode: b.serviceMode,
+              serviceIds: b.serviceIds || [],
+              serviceConfigs: b.serviceConfigs || [],
+              schedule: b.schedule || [],
+            } as any));
+            setProfessionals(mapped);
+          }
+        }
+      } catch (err) {
+        console.warn('Utilizando profissionais padrão da barbearia:', err);
+      } finally {
+        setIsLoadingProfessionals(false);
+      }
+    }
+    fetchProfessionals();
+  }, []);
+
   // Dev state for edge case testing
   const [simulateConflict, setSimulateConflict] = useState(false);
   const [fullyBookedMode, setFullyBookedMode] = useState(false);
@@ -125,8 +168,8 @@ export default function App() {
   const [bookingState, setBookingState] = useState<BookingState>({
     services: [],
     service: null,
-    professional: MOCK_PROFESSIONALS[0], // Auto assigned default professional in backend
-    isAnyProfessional: true,
+    professional: MOCK_PROFESSIONALS[0], // Auto assigned default professional
+    isAnyProfessional: false,
     selectedDate: null,
     selectedTime: null,
     clientInfo: {
@@ -135,6 +178,52 @@ export default function App() {
       whatsappOptIn: false,
     },
   });
+
+  // Filter professionals eligible for all selected services
+  const eligibleProfessionals = useMemo(() => {
+    if (!bookingState.services || bookingState.services.length === 0) {
+      return professionals;
+    }
+
+    return professionals.filter((prof) => {
+      const barber = prof as any;
+      // Se atende todos os serviços
+      if (barber.serviceMode === 'all' || !barber.serviceMode) {
+        return true;
+      }
+
+      // Se atende apenas serviços específicos
+      const allowedIds = new Set(barber.serviceIds || []);
+      return bookingState.services.every((svc) => {
+        const candidates = extractCandidateServiceIds(svc);
+        return candidates.some((cId) => allowedIds.has(cId));
+      });
+    });
+  }, [professionals, bookingState.services]);
+
+  // Keep bookingState.professional in sync with eligible professionals
+  useEffect(() => {
+    if (eligibleProfessionals.length > 0) {
+      const isCurrentEligible = eligibleProfessionals.some(
+        (p) => p.id === bookingState.professional?.id
+      );
+      if (!isCurrentEligible) {
+        setBookingState((prev) => ({
+          ...prev,
+          professional: eligibleProfessionals[0],
+          isAnyProfessional: false,
+          selectedTime: null,
+        }));
+      }
+    } else {
+      setBookingState((prev) => ({
+        ...prev,
+        professional: null,
+        isAnyProfessional: false,
+        selectedTime: null,
+      }));
+    }
+  }, [eligibleProfessionals]);
 
   // Real Firestore appointments for the selected date
   const [dayAppointments, setDayAppointments] = useState<FirestoreAppointmentRecord[]>([]);
@@ -190,19 +279,30 @@ export default function App() {
   // Total duration of all selected services
   const totalDurationMinutes = useMemo(() => {
     if (!bookingState.services || bookingState.services.length === 0) return 30;
-    return bookingState.services.reduce((sum, s) => sum + Number(s.durationMinutes), 0);
-  }, [bookingState.services]);
+    return calculateTotalEffectiveDuration(bookingState.services, bookingState.professional as any);
+  }, [bookingState.services, bookingState.professional]);
 
-  // Compute available time slots for chosen date, appointments, and total duration
+  // Compute available time slots for chosen date, appointments, total duration, and selected professional
   const availableTimeSlots = useMemo(() => {
     if (!bookingState.selectedDate) return [];
+    const profSchedule = (bookingState.professional as any)?.schedule || null;
+    const profId = bookingState.professional?.id || null;
+
     return getAvailableTimeSlots(
       bookingState.selectedDate.dateString,
       dayAppointments,
       totalDurationMinutes,
-      fullyBookedMode
+      fullyBookedMode,
+      profSchedule,
+      profId
     );
-  }, [bookingState.selectedDate, dayAppointments, totalDurationMinutes, fullyBookedMode]);
+  }, [
+    bookingState.selectedDate,
+    dayAppointments,
+    totalDurationMinutes,
+    fullyBookedMode,
+    bookingState.professional
+  ]);
 
   // Deselect time if it becomes unavailable due to service duration changes or new appointments
   useEffect(() => {
@@ -257,6 +357,16 @@ export default function App() {
     setSlotConflictError(false);
   };
 
+  const handleSelectProfessional = (prof: Professional) => {
+    setBookingState((prev) => ({
+      ...prev,
+      professional: prof,
+      isAnyProfessional: false,
+      selectedTime: null, // Reset time because new professional has different availability
+    }));
+    setSlotConflictError(false);
+  };
+
   const handleSelectDate = (day: DayOption) => {
     setBookingState((prev) => ({
       ...prev,
@@ -296,7 +406,14 @@ export default function App() {
   const canJumpToStep = (step: StepNumber): boolean => {
     if (step === 1) return true;
     if (step === 2) return bookingState.services.length > 0;
-    if (step === 3) return bookingState.services.length > 0 && Boolean(bookingState.selectedDate) && Boolean(bookingState.selectedTime);
+    if (step === 3) {
+      return (
+        bookingState.services.length > 0 &&
+        Boolean(bookingState.selectedDate) &&
+        Boolean(bookingState.selectedTime) &&
+        Boolean(bookingState.professional)
+      );
+    }
     return false;
   };
 
@@ -467,24 +584,50 @@ export default function App() {
                 </div>
               )}
 
-              {/* ETAPA 2: ESCOLHER DATA E HORÁRIO */}
+              {/* ETAPA 2: ESCOLHER PROFISSIONAL, DATA E HORÁRIO */}
               {currentStep === 2 && (
-                <div className="animate-fade-in">
-                  <DateAndTimeSelector
-                    days={upcomingDays}
-                    selectedDate={bookingState.selectedDate}
-                    onSelectDate={handleSelectDate}
-                    timeSlots={availableTimeSlots}
-                    selectedTime={bookingState.selectedTime}
-                    onSelectTime={handleSelectTime}
-                    selectedService={bookingState.service}
-                    isLoading={isLoadingTimeSlots}
-                    fetchError={timeSlotsError}
-                    onRetry={() => bookingState.selectedDate && fetchDayAppointments(bookingState.selectedDate.dateString)}
-                    hasConflictError={slotConflictError}
-                    onBack={handleBackStep}
-                    onContinue={() => setCurrentStep(3)}
-                  />
+                <div className="space-y-6 animate-fade-in">
+                  {eligibleProfessionals.length === 0 ? (
+                    <div className="p-6 bg-red-950/40 border border-red-800/80 rounded-2xl text-center space-y-3">
+                      <p className="text-red-300 font-bold text-base">
+                        Nenhum profissional disponível para todos os serviços selecionados.
+                      </p>
+                      <p className="text-xs text-red-400">
+                        Por favor, volte à etapa anterior e ajuste sua seleção de serviços.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleBackStep}
+                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-semibold cursor-pointer"
+                      >
+                        Voltar para Serviços
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <ProfessionalSelector
+                        professionals={eligibleProfessionals}
+                        selectedProfessional={bookingState.professional}
+                        onSelectProfessional={handleSelectProfessional}
+                      />
+
+                      <DateAndTimeSelector
+                        days={upcomingDays}
+                        selectedDate={bookingState.selectedDate}
+                        onSelectDate={handleSelectDate}
+                        timeSlots={availableTimeSlots}
+                        selectedTime={bookingState.selectedTime}
+                        onSelectTime={handleSelectTime}
+                        selectedService={bookingState.service}
+                        isLoading={isLoadingTimeSlots}
+                        fetchError={timeSlotsError}
+                        onRetry={() => bookingState.selectedDate && fetchDayAppointments(bookingState.selectedDate.dateString)}
+                        hasConflictError={slotConflictError}
+                        onBack={handleBackStep}
+                        onContinue={() => setCurrentStep(3)}
+                      />
+                    </>
+                  )}
                 </div>
               )}
 

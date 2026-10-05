@@ -107,12 +107,14 @@ export const ProfessionalSelector: React.FC<ProfessionalSelectorProps> = ({
       </div>
 
       {/* Info note */}
-      <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex items-start gap-2.5 text-xs text-zinc-400">
-        <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-        <span>
-          A opção <strong className="text-zinc-200">"Qualquer profissional"</strong> busca automaticamente o primeiro horário vago com qualquer um de nossos barbeiros qualificados.
-        </span>
-      </div>
+      {professionals.some((p) => p.id === 'any-professional') && (
+        <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex items-start gap-2.5 text-xs text-zinc-400">
+          <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+          <span>
+            A opção <strong className="text-zinc-200">"Qualquer profissional"</strong> busca automaticamente o primeiro horário vago com qualquer um de nossos barbeiros qualificados.
+          </span>
+        </div>
+      )}
     </section>
   );
 };
