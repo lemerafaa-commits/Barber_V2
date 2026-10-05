@@ -1,6 +1,6 @@
 import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
-import { resolveBarberServiceDuration, extractCandidateServiceIds } from '../../utils/duration';
+import { resolveBarberServiceDuration, extractCandidateServiceIds } from '../../utils/duration.js';
 import { Barber } from '../../types/admin';
 
 let adminApp: App | null = null;
