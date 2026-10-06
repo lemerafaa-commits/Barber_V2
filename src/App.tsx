@@ -21,6 +21,7 @@ import {
   StepNumber,
   Service,
   ServiceCategory,
+  ServiceOption,
   DayOption,
   Appointment,
   Barbershop,
@@ -37,20 +38,90 @@ import {
   FirestoreAppointmentRecord
 } from './services/firebase/appointments';
 import {
-  getFirestoreServices,
-  adminServicesToBookingCategories,
-} from './services/firebase/services';
-import { getFirestoreProfessionals } from './services/firebase/professionals';
-import {
   loadBusinessProfile,
   businessProfileToBarbershop,
   DEFAULT_BUSINESS_PROFILE
 } from './services/businessProfileData';
+import { DEFAULT_SERVICE_CATEGORIES } from './services/adminServiceDomain';
 import {
   calculateTotalEffectiveDuration,
   extractCandidateServiceIds
 } from './utils/duration';
 import { triggerWhatsAppConfirmation } from './services/notifications/clientNotification';
+
+/**
+ * Converte serviços reais retornados pela API /api/public/catalog em ServiceCategory[]
+ * para a interface pública de agendamento.
+ *
+ * Regras estritas:
+ * 1. Cada serviço do Firestore vira uma opção diretamente com seu Document ID real (option.id = service.id).
+ * 2. NUNCA deduplica serviços por nome (serviços com mesmo nome e IDs distintos são preservados).
+ * 3. NUNCA concatena ou altera os IDs reais.
+ */
+function publicCatalogToBookingCategories(
+  services: {
+    id: string;
+    name: string;
+    categoryId?: string;
+    categoryName?: string;
+    description?: string;
+    price: number;
+    durationMinutes: number;
+    active?: boolean;
+  }[]
+): ServiceCategory[] {
+  const activeServices = services.filter((s) => s.active !== false);
+  if (activeServices.length === 0) return [];
+
+  const categoryGroups = new Map<string, typeof services>();
+  for (const s of activeServices) {
+    const catId = s.categoryId || 'cabelo';
+    const list = categoryGroups.get(catId) || [];
+    list.push(s);
+    categoryGroups.set(catId, list);
+  }
+
+  const result: ServiceCategory[] = [];
+
+  for (const [catId, group] of categoryGroups.entries()) {
+    const def = DEFAULT_SERVICE_CATEGORIES.find((c) => c.id === catId);
+    const catName = def?.name || group[0]?.categoryName || catId;
+    const catDesc = def?.description || group[0]?.description || 'Serviços especializados';
+    const iconName = def?.iconName || (catId === 'barba' ? 'Razor' : catId === 'combo' ? 'Sparkles' : 'Scissors');
+
+    const options: ServiceOption[] = group.map((s) => ({
+      id: s.id, // O ID REAL CANÔNICO DO FIRESTORE!
+      name: s.name,
+      priceOverride: typeof s.price === 'number' ? s.price : Number(s.price) || 0,
+      durationOverride: typeof s.durationMinutes === 'number' ? s.durationMinutes : Number(s.durationMinutes) || 30,
+    }));
+
+    const sortedByPrice = [...group].sort((a, b) => a.price - b.price);
+    const baseService = sortedByPrice[0];
+
+    result.push({
+      id: catId,
+      name: catName,
+      description: catDesc,
+      durationMinutes: baseService.durationMinutes,
+      price: baseService.price,
+      iconName,
+      popular: catId === 'combo',
+      options,
+    });
+  }
+
+  result.sort((a, b) => {
+    const indexA = DEFAULT_SERVICE_CATEGORIES.findIndex((c) => c.id === a.id);
+    const indexB = DEFAULT_SERVICE_CATEGORIES.findIndex((c) => c.id === b.id);
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+    return a.name.localeCompare(b.name, 'pt-BR');
+  });
+
+  return result;
+}
 
 export default function App() {
   // Simple SPA path router state
@@ -110,55 +181,72 @@ export default function App() {
   const [isLoadingProfessionals, setIsLoadingProfessionals] = useState<boolean>(true);
 
   useEffect(() => {
-    async function fetchServices() {
-      try {
-        const firestoreServices = await getFirestoreServices('joao-barber');
-        if (firestoreServices && firestoreServices.length > 0) {
-          const categories = adminServicesToBookingCategories(firestoreServices);
-          if (categories.length > 0) {
-            setServiceCategories(categories);
-          }
-        }
-      } catch (err) {
-        console.warn('Utilizando catálogo padrão de serviços da barbearia:', err);
-      } finally {
-        setIsLoadingServices(false);
-      }
-    }
-    fetchServices();
-  }, []);
+    let isMounted = true;
 
-  useEffect(() => {
-    async function fetchProfessionals() {
+    async function loadCatalog() {
+      setIsLoadingServices(true);
+      setIsLoadingProfessionals(true);
+
       try {
-        const firestoreProfessionals = await getFirestoreProfessionals('joao-barber');
-        if (firestoreProfessionals && firestoreProfessionals.length > 0) {
-          const activeOnly = firestoreProfessionals.filter(
-            (p) => p.status === 'active' && p.active !== false
-          );
-          if (activeOnly.length > 0) {
-            const mapped: Professional[] = activeOnly.map((b) => ({
-              id: b.id,
+        const response = await fetch('/api/public/catalog');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data.success || !data.catalog) {
+          throw new Error('Resposta inválida da API de catálogo');
+        }
+
+        const { services: apiServices, professionals: apiProfessionals } = data.catalog;
+
+        if (isMounted) {
+          // 1. Integrar Serviços Reais com IDs canônicos
+          if (Array.isArray(apiServices) && apiServices.length > 0) {
+            const categories = publicCatalogToBookingCategories(apiServices);
+            if (categories.length > 0) {
+              setServiceCategories(categories);
+            }
+          }
+
+          // 2. Integrar Profissionais Reais com IDs canônicos
+          if (Array.isArray(apiProfessionals) && apiProfessionals.length > 0) {
+            const mapped: Professional[] = apiProfessionals.map((b: any) => ({
+              id: b.id, // Document ID canônico real do Firestore
               name: b.name,
               role: b.id.includes('joao') ? 'Barbeiro Líder' : 'Barbeiro Especialista',
-              avatarUrl: b.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
+              avatarUrl: b.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250',
               isAvailable: true,
-              serviceMode: b.serviceMode,
-              serviceIds: b.serviceIds || [],
-              serviceConfigs: b.serviceConfigs || [],
-              schedule: b.schedule || [],
+              serviceMode: b.serviceMode || 'all',
+              serviceIds: Array.isArray(b.serviceIds) ? b.serviceIds : [],
+              serviceConfigs: Array.isArray(b.serviceConfigs) ? b.serviceConfigs : [],
+              schedule: Array.isArray(b.schedule) ? b.schedule : [],
             } as any));
+
             setProfessionals(mapped);
           }
         }
-      } catch (err) {
-        console.warn('Utilizando profissionais padrão da barbearia:', err);
+      } catch (err: any) {
+        console.warn(
+          '[Catálogo Público] Não foi possível carregar catálogo real via /api/public/catalog. Utilizando fallback do Demo Mode:',
+          err?.message || err
+        );
+        // Fallback resiliente: preserva MOCK_SERVICE_CATEGORIES e MOCK_PROFESSIONALS
       } finally {
-        setIsLoadingProfessionals(false);
+        if (isMounted) {
+          setIsLoadingServices(false);
+          setIsLoadingProfessionals(false);
+        }
       }
     }
-    fetchProfessionals();
+
+    loadCatalog();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+
 
   // Dev state for edge case testing
   const [simulateConflict, setSimulateConflict] = useState(false);
@@ -320,7 +408,7 @@ export default function App() {
       const existingIndex = prev.services.findIndex((s) => s.categoryId === category.id);
 
       const newService: Service = {
-        id: `${category.id}-${option.id}`,
+        id: option.id, // Preservar exatamente o ID real do documento Firestore
         categoryId: category.id,
         name: category.name,
         selectedOption: option.name,
