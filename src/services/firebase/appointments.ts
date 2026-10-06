@@ -7,7 +7,7 @@ import {
   doc,
   writeBatch
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
+import { db, auth, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
 import { Service } from '../../types/booking';
 import { AdminAppointment, AdminServiceItem, AppointmentStatus } from '../../types/admin';
 
@@ -335,7 +335,13 @@ export async function getFirestoreAppointmentsForAdmin(
 
 /**
  * Updates the status of an appointment in Cloud Firestore to 'cancelled' or 'completed'.
- * Synchronously updates both 'appointments' and 'busy_slots' using an atomic batch.
+ *
+ * Arquitetura Híbrida / Segregação de Responsabilidade (Fase 4B.4.x):
+ * - 'cancelled': Invoca a Serverless Function autoritativa POST /api/admin/bookings/cancel
+ *   executando transação ACID no Firebase Admin para atualizar /appointments, /busy_slots
+ *   e remover cirurgicamente o intervalo do controle de concorrência em /daily_schedules.
+ * - 'completed': Preserva a transição atômica via writeBatch() no Client SDK, mantendo
+ *   o bloqueio histórico do horário e o snapshot financeiro do atendimento.
  */
 export async function updateFirestoreAppointmentStatus(
   appointmentId: string,
@@ -345,6 +351,81 @@ export async function updateFirestoreAppointmentStatus(
     return { success: true };
   }
 
+  // 1. FLUXO SERVERLESS TRANSACIONAL PARA CANCELAMENTO
+  if (status === 'cancelled') {
+    const currentUser = auth?.currentUser;
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'Autenticação necessária. Faça login como administrador para cancelar reservas.',
+      };
+    }
+
+    let idToken: string;
+    try {
+      idToken = await currentUser.getIdToken();
+    } catch (tokenErr) {
+      console.error('[Admin Cancel] Falha ao obter token de autenticação:', tokenErr);
+      return {
+        success: false,
+        error: 'Falha ao autenticar sessão administrativa. Atualize a página e tente novamente.',
+      };
+    }
+
+    try {
+      const response = await fetch('/api/admin/bookings/cancel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          businessId: 'joao-barber',
+          appointmentId,
+        }),
+      });
+
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch {
+        // Resposta sem corpo JSON
+      }
+
+      if (response.ok && data?.success) {
+        // Sucesso normal ou idempotente (alreadyCancelled: true)
+        return { success: true };
+      }
+
+      // Mapeamento explícito de erros HTTP
+      let errorMessage = 'Não foi possível cancelar o agendamento no momento.';
+      if (response.status === 401) {
+        errorMessage = 'Sessão expirada ou não autorizada. Faça login novamente.';
+      } else if (response.status === 404) {
+        errorMessage = 'Agendamento não encontrado no banco de dados.';
+      } else if (response.status === 409) {
+        errorMessage = 'Não é permitido cancelar um agendamento que já foi concluído.';
+      } else if (response.status === 503) {
+        errorMessage = 'Serviço de cancelamento temporariamente indisponível no servidor.';
+      } else if (data?.message) {
+        errorMessage = data.message;
+      }
+
+      console.warn(`[Admin Cancel] Endpoint retornou HTTP ${response.status}:`, data);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    } catch (networkErr: any) {
+      console.error('[Admin Cancel] Erro de conexão com o servidor:', networkErr);
+      return {
+        success: false,
+        error: 'Erro de conexão com o servidor ao cancelar agendamento. Verifique sua conexão e tente novamente.',
+      };
+    }
+  }
+
+  // 2. FLUXO CLIENT SDK PRESERVADO PARA CONCLUSÃO DE ATENDIMENTO ('completed')
   const collectionPath = 'appointments';
   try {
     const batch = writeBatch(db);

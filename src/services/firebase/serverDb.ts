@@ -1,5 +1,5 @@
 import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
-import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore, Firestore, FieldValue, DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore';
 import { resolveBarberServiceDuration, extractCandidateServiceIds } from '../../utils/duration.js';
 import { Barber } from '../../types/admin';
 
@@ -66,6 +66,18 @@ export interface CreateBookingTransactionResult {
   isIdempotentReplay: boolean;
 }
 
+export interface CancelBookingTransactionInput {
+  businessId: string;
+  appointmentId: string;
+}
+
+export interface CancelBookingTransactionResult {
+  success: boolean;
+  appointmentId: string;
+  status: 'cancelled';
+  alreadyCancelled: boolean;
+}
+
 export type BookingTransactionErrorCode =
   | 'SLOT_CONFLICT'
   | 'IDEMPOTENCY_CONFLICT'
@@ -74,6 +86,8 @@ export type BookingTransactionErrorCode =
   | 'PROFESSIONAL_NOT_FOUND'
   | 'PROFESSIONAL_INACTIVE'
   | 'PROFESSIONAL_NOT_ELIGIBLE'
+  | 'APPOINTMENT_NOT_FOUND'
+  | 'INVALID_STATUS_TRANSITION'
   | 'FIREBASE_CONFIG_ERROR'
   | 'INTERNAL_ERROR';
 
@@ -786,6 +800,154 @@ export async function createBookingTransaction(
         clientRequestId,
         createdAt: new Date().toISOString(),
       },
+    };
+  });
+}
+
+/**
+ * Executa o cancelamento transacional autoritativo de um agendamento no Firestore.
+ *
+ * Responsabilidades:
+ * 1. Validação do input (businessId e appointmentId obrigatórios).
+ * 2. Leitura atômica de /appointments/{appointmentId}.
+ * 3. Rejeição de agendamento inexistente (APPOINTMENT_NOT_FOUND).
+ * 4. Rejeição de transição inválida (completed -> cancelled) via INVALID_STATUS_TRANSITION.
+ * 5. Remoção cirúrgica do intervalo correspondente em /daily_schedules (específico do profissional ou universal).
+ * 6. Atualização atômica de /busy_slots/{appointmentId} para status: 'cancelled' (se existir).
+ * 7. Atualização atômica de /appointments/{appointmentId} para status: 'cancelled' sem modificar outros dados históricos.
+ * 8. Idempotência: se já estiver cancelled, limpa resíduo em daily_schedules (se houver) e retorna alreadyCancelled: true.
+ */
+export async function cancelBookingTransaction(
+  input: CancelBookingTransactionInput
+): Promise<CancelBookingTransactionResult> {
+  // 1. Validações de entrada
+  if (!input || typeof input !== 'object') {
+    throw new BookingTransactionError('INVALID_DATA', 'Corpo da requisição de cancelamento inválido.');
+  }
+
+  const businessId = typeof input.businessId === 'string' ? input.businessId.trim() : '';
+  if (!businessId) {
+    throw new BookingTransactionError('INVALID_DATA', 'businessId é obrigatório.');
+  }
+
+  const appointmentId = typeof input.appointmentId === 'string' ? input.appointmentId.trim() : '';
+  if (!appointmentId) {
+    throw new BookingTransactionError('INVALID_DATA', 'appointmentId é obrigatório.');
+  }
+
+  // 2. Conexão com Firestore Admin
+  let db: Firestore;
+  try {
+    db = getAdminFirestore();
+  } catch (err: any) {
+    throw new BookingTransactionError(
+      'FIREBASE_CONFIG_ERROR',
+      `Falha na inicialização do Firebase Admin no servidor: ${err?.message || 'Configuração ausente'}`
+    );
+  }
+
+  const aptDocRef = db.collection('appointments').doc(appointmentId);
+  const busySlotDocRef = db.collection('busy_slots').doc(appointmentId);
+
+  // 3. Execução da Transação ACID
+  return await db.runTransaction(async (transaction) => {
+    // -------------------------------------------------------------
+    // FASE 1: LEITURAS (READS)
+    // -------------------------------------------------------------
+    const aptSnap = await transaction.get(aptDocRef);
+    if (!aptSnap.exists) {
+      throw new BookingTransactionError(
+        'APPOINTMENT_NOT_FOUND',
+        `Agendamento com ID "${appointmentId}" não encontrado no banco de dados.`
+      );
+    }
+
+    const aptData = aptSnap.data() || {};
+
+    if (aptData.businessId && aptData.businessId !== businessId) {
+      throw new BookingTransactionError(
+        'INVALID_DATA',
+        'O agendamento não pertence ao estabelecimento informado.'
+      );
+    }
+
+    if (aptData.status === 'completed') {
+      throw new BookingTransactionError(
+        'INVALID_STATUS_TRANSITION',
+        'Não é permitido cancelar um agendamento com status concluído.'
+      );
+    }
+
+    const date = typeof aptData.date === 'string' ? aptData.date.trim() : '';
+    const profId =
+      typeof aptData.professionalId === 'string' && aptData.professionalId.trim().length > 0
+        ? aptData.professionalId.trim()
+        : undefined;
+
+    // Resolução do Documento de Controle da Agenda Diária:
+    // Se o agendamento possui professionalId -> documento específico do profissional.
+    // Se não possui (reserva legada) -> documento universal da barbearia.
+    let scheduleDocRef: DocumentReference | null = null;
+    if (date) {
+      if (profId) {
+        scheduleDocRef = db.collection('daily_schedules').doc(`${businessId}_${date}_${profId}`);
+      } else {
+        scheduleDocRef = db.collection('daily_schedules').doc(`${businessId}_${date}_universal`);
+      }
+    }
+
+    const scheduleSnap = scheduleDocRef ? await transaction.get(scheduleDocRef) : null;
+    const busySlotSnap = await transaction.get(busySlotDocRef);
+
+    // -------------------------------------------------------------
+    // FASE 2: IDEMPOTÊNCIA PARA AGENDAMENTO JÁ CANCELADO
+    // -------------------------------------------------------------
+    const isAlreadyCancelled = aptData.status === 'cancelled';
+
+    // -------------------------------------------------------------
+    // FASE 3: ESCRITAS ATÔMICAS (WRITES)
+    // -------------------------------------------------------------
+
+    // A. Remover intervalo cirurgicamente de /daily_schedules se o documento existir
+    if (scheduleSnap && scheduleSnap.exists && scheduleDocRef) {
+      const currentIntervals = (scheduleSnap.data()?.intervals as ScheduleInterval[]) || [];
+      const hasMatchingInterval = currentIntervals.some((i) => i.appointmentId === appointmentId);
+
+      if (hasMatchingInterval) {
+        const remainingIntervals = currentIntervals.filter((i) => i.appointmentId !== appointmentId);
+        transaction.set(
+          scheduleDocRef,
+          {
+            intervals: remainingIntervals,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    }
+
+    // B. Atualizar /busy_slots se o documento existir e não estiver cancelado
+    if (busySlotSnap.exists) {
+      const currentSlotStatus = busySlotSnap.data()?.status;
+      if (currentSlotStatus !== 'cancelled') {
+        transaction.update(busySlotDocRef, {
+          status: 'cancelled',
+        });
+      }
+    }
+
+    // C. Atualizar /appointments para 'cancelled' se ainda não estiver
+    if (!isAlreadyCancelled) {
+      transaction.update(aptDocRef, {
+        status: 'cancelled',
+      });
+    }
+
+    return {
+      success: true,
+      appointmentId,
+      status: 'cancelled' as const,
+      alreadyCancelled: isAlreadyCancelled,
     };
   });
 }
