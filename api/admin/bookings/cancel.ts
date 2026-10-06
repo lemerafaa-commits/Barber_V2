@@ -1,10 +1,15 @@
-import { getAuth } from 'firebase-admin/auth';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import {
   cancelBookingTransaction,
   BookingTransactionError,
   BookingTransactionErrorCode,
   getAdminFirestore,
 } from '../../../src/services/firebase/serverDb.js';
+
+const FIREBASE_JWKS_URL = new URL(
+  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'
+);
+const remoteJWKSet = createRemoteJWKSet(FIREBASE_JWKS_URL);
 
 interface SuccessResponseBody {
   success: true;
@@ -161,9 +166,13 @@ export default async function handler(req: any, res: any) {
     });
   }
 
+  const projectId = process.env.FIREBASE_PROJECT_ID || 'saas-barberaria-teste-v1';
+
   try {
-    const adminAuth = getAuth();
-    await adminAuth.verifyIdToken(idToken);
+    await jwtVerify(idToken, remoteJWKSet, {
+      issuer: `https://securetoken.google.com/${projectId}`,
+      audience: projectId,
+    });
   } catch {
     return sendResponse(res, 401, {
       success: false,
