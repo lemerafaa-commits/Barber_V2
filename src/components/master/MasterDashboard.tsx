@@ -27,11 +27,13 @@ import { Loader2, LogOut, X, ExternalLink } from 'lucide-react';
 interface MasterDashboardProps {
   onNavigateHome: () => void;
   onNavigateAdmin: () => void;
+  onLogout?: () => void;
 }
 
 export const MasterDashboard: React.FC<MasterDashboardProps> = ({
   onNavigateHome,
   onNavigateAdmin,
+  onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<MasterTab>('overview');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -227,11 +229,24 @@ export const MasterDashboard: React.FC<MasterDashboardProps> = ({
             </div>
 
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Nesta etapa de prototipação UI/UX, o logout real não é obrigatório.
-              Para onde deseja navegar?
+              Deseja encerrar sua sessão ou navegar para outra área?
             </p>
 
             <div className="space-y-2 pt-1 text-xs">
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLogoutModalOpen(false);
+                    onLogout();
+                  }}
+                  className="w-full py-2.5 px-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 font-semibold flex items-center justify-between transition-colors"
+                >
+                  <span>Encerrar Sessão Master (Logout)</span>
+                  <LogOut className="w-4 h-4 text-rose-400" />
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {

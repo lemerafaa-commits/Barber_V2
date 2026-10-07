@@ -11,8 +11,11 @@ import { DevEdgeCasesModal } from './components/DevEdgeCasesModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLogin } from './components/admin/AdminLogin';
 import { MasterDashboard } from './components/master/MasterDashboard';
+import { MasterLogin } from './components/master/MasterLogin';
+import { MasterAccessDenied } from './components/master/MasterAccessDenied';
 import { User } from 'firebase/auth';
-import { subscribeToAuthChanges } from './services/firebase/auth';
+import { subscribeToAuthChanges, signOutAdmin } from './services/firebase/auth';
+import { isAuthorizedMasterUser } from './services/master/masterAuthService';
 import { isFirebaseConfigured } from './services/firebase/config';
 import { Loader2 } from 'lucide-react';
 
@@ -143,13 +146,45 @@ export default function App() {
   // Firebase Auth state for protected admin access
   const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [isMasterAuthorized, setIsMasterAuthorized] = useState<boolean>(false);
+  const [isMasterAuthChecking, setIsMasterAuthChecking] = useState<boolean>(true);
 
   useEffect(() => {
-    const unsubscribe = subscribeToAuthChanges((user) => {
+    let isSubscribed = true;
+
+    const unsubscribe = subscribeToAuthChanges(async (user) => {
       setAdminUser(user);
       setIsAuthChecking(false);
+
+      if (user) {
+        setIsMasterAuthChecking(true);
+        try {
+          const authorized = await isAuthorizedMasterUser(user);
+          if (isSubscribed) {
+            setIsMasterAuthorized(authorized);
+          }
+        } catch (err) {
+          console.warn('[MasterAuth] Falha ao verificar autorização do usuário:', err);
+          if (isSubscribed) {
+            setIsMasterAuthorized(false);
+          }
+        } finally {
+          if (isSubscribed) {
+            setIsMasterAuthChecking(false);
+          }
+        }
+      } else {
+        if (isSubscribed) {
+          setIsMasterAuthorized(false);
+          setIsMasterAuthChecking(false);
+        }
+      }
     });
-    return () => unsubscribe();
+
+    return () => {
+      isSubscribed = false;
+      unsubscribe();
+    };
   }, []);
 
   // Current active step in progressive disclosure (1: Service, 2: Date & Time, 3: Customer Data)
@@ -622,12 +657,73 @@ export default function App() {
     );
   }
 
-  // Render Master Dashboard if path is /master (UI/UX phase, direct evaluation)
+  // Render Master Dashboard if path is /master (Área Restrita do Superadministrador)
   if (currentPath.startsWith('/master')) {
+    // Quando o Firebase está configurado no ambiente (Produção / Staging),
+    // o acesso ao SaaS Master é estritamente autenticado e autorizado.
+    if (isFirebaseConfigured) {
+      if (isAuthChecking || isMasterAuthChecking) {
+        return (
+          <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+            <span className="text-xs text-zinc-400 font-medium">Validando privilégios de Superadministrador...</span>
+          </div>
+        );
+      }
+
+      // Caso 1: Usuário não autenticado no Firebase Auth -> Exibe Login do Master
+      if (!adminUser) {
+        return (
+          <MasterLogin
+            onLoginSuccess={() => {
+              // Transição automática disparada via onAuthStateChanged
+            }}
+            onGoToPublicPage={() => navigateTo('/')}
+            onGoToAdminPage={() => navigateTo('/admin')}
+          />
+        );
+      }
+
+      // Caso 2: Usuário autenticado, mas NÃO possui privilégios de Master (ex: barbeiro comum) -> Tela 403 amigável
+      if (!isMasterAuthorized) {
+        return (
+          <MasterAccessDenied
+            userEmail={adminUser.email}
+            onLogout={async () => {
+              try {
+                await signOutAdmin();
+              } catch (e) {
+                console.error('[Master] Erro ao encerrar sessão:', e);
+              }
+            }}
+            onGoToAdminPage={() => navigateTo('/admin')}
+            onGoToPublicPage={() => navigateTo('/')}
+          />
+        );
+      }
+
+      // Caso 3: Autenticado e plenamente autorizado como Superadmin Master -> Renderiza MasterDashboard
+      return (
+        <MasterDashboard
+          onNavigateHome={() => navigateTo('/')}
+          onNavigateAdmin={() => navigateTo('/admin')}
+          onLogout={async () => {
+            try {
+              await signOutAdmin();
+            } catch (e) {
+              console.error('[Master] Erro ao encerrar sessão:', e);
+            }
+          }}
+        />
+      );
+    }
+
+    // Modo Demonstração exclusivo para ambiente sem Firebase (Preview AI Studio)
     return (
       <MasterDashboard
         onNavigateHome={() => navigateTo('/')}
         onNavigateAdmin={() => navigateTo('/admin')}
+        onLogout={() => navigateTo('/')}
       />
     );
   }

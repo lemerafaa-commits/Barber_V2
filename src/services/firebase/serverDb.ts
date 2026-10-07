@@ -1,10 +1,12 @@
 import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue, DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore';
+import { getAuth, Auth } from 'firebase-admin/auth';
 import { resolveBarberServiceDuration, extractCandidateServiceIds } from '../../utils/duration.js';
 import { Barber } from '../../types/admin';
 
 let adminApp: App | null = null;
 let adminDb: Firestore | null = null;
+let adminAuthInstance: Auth | null = null;
 
 // Temporary diagnostic holders (non-sensitive)
 let diagProjectId = '';
@@ -161,17 +163,12 @@ export function computeRequestFingerprint(input: {
 }
 
 /**
- * Initializes and returns the Firebase Admin Firestore instance on the server side.
- * Never imported into client bundles.
- * 
- * Supports:
- * 1. FIREBASE_SERVICE_ACCOUNT (raw JSON string)
- * 2. FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY + FIREBASE_PROJECT_ID
- * 3. Default GCP / ADC initialization with fallback
+ * Garante a inicialização única do Firebase Admin App no lado do servidor.
+ * Reutiliza FIREBASE_SERVICE_ACCOUNT, chaves individuais ou ADC com fallback para saas-barberaria-teste-v1.
  */
-export function getAdminFirestore(): Firestore {
-  if (adminDb) {
-    return adminDb;
+export function ensureAdminApp(): App {
+  if (adminApp) {
+    return adminApp;
   }
 
   const envProjectId = process.env.FIREBASE_PROJECT_ID;
@@ -237,8 +234,38 @@ export function getAdminFirestore(): Firestore {
   console.log('[Firebase Admin Init] Client email used:', diagClientEmail);
   console.log('[Firebase Admin Init] ProjectId resolved:', diagProjectId);
 
-  adminDb = getFirestore(adminApp);
+  return adminApp;
+}
+
+/**
+ * Initializes and returns the Firebase Admin Firestore instance on the server side.
+ * Never imported into client bundles.
+ * 
+ * Supports:
+ * 1. FIREBASE_SERVICE_ACCOUNT (raw JSON string)
+ * 2. FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY + FIREBASE_PROJECT_ID
+ * 3. Default GCP / ADC initialization with fallback
+ */
+export function getAdminFirestore(): Firestore {
+  if (adminDb) {
+    return adminDb;
+  }
+  const app = ensureAdminApp();
+  adminDb = getFirestore(app);
   return adminDb;
+}
+
+/**
+ * Retorna a instância do Firebase Admin Auth inicializada com as mesmas credenciais do Firestore.
+ * Utilizado para administração de usuários, custom claims e verificação de identidade no servidor.
+ */
+export function getAdminAuth(): Auth {
+  if (adminAuthInstance) {
+    return adminAuthInstance;
+  }
+  const app = ensureAdminApp();
+  adminAuthInstance = getAuth(app);
+  return adminAuthInstance;
 }
 
 /**
