@@ -670,7 +670,7 @@ export async function createBookingTransaction(
       }
     }
 
-    // D. Checagem de Conflitos contra Intervalos Ocupados
+    // D. Checagem de Conflitos contra Intervalos Ocupados com Autocura de Órfãos
     const activeProfIntervals = profScheduleSnap.exists
       ? (profScheduleSnap.data()?.intervals as ScheduleInterval[]) || []
       : seededProfIntervals;
@@ -679,23 +679,74 @@ export async function createBookingTransaction(
       ? (universalScheduleSnap.data()?.intervals as ScheduleInterval[]) || []
       : seededUniversalIntervals;
 
+    let healedProfIntervals = [...activeProfIntervals];
+    let profOrphansFound = false;
+
     // 1. Conflito com a agenda do próprio profissional
     for (const interval of activeProfIntervals) {
       if (isIntervalOverlapping(newStart, newEnd, interval.startMinutes, interval.endMinutes)) {
-        throw new BookingTransactionError(
-          'SLOT_CONFLICT',
-          `O profissional "${barberData.name}" já possui agendamento no horário solicitado.`
-        );
+        // Validação de resiliência: verificar se o intervalo conflitante é órfão
+        // (ex: agendamento cancelado anteriormente ou excluído)
+        let isOrphan = false;
+        if (interval.appointmentId) {
+          const aptSnap = await transaction.get(db.collection('appointments').doc(interval.appointmentId));
+          if (!aptSnap.exists || aptSnap.data()?.status === 'cancelled') {
+            isOrphan = true;
+          } else {
+            const busySlotSnap = await transaction.get(db.collection('busy_slots').doc(interval.appointmentId));
+            if (busySlotSnap.exists && busySlotSnap.data()?.status === 'cancelled') {
+              isOrphan = true;
+            }
+          }
+        }
+
+        if (isOrphan) {
+          // Autocura: remove o intervalo órfão da agenda ativa
+          healedProfIntervals = healedProfIntervals.filter((i) => i.appointmentId !== interval.appointmentId);
+          profOrphansFound = true;
+          console.warn(
+            `[createBookingTransaction] Autocura: intervalo órfão removido da agenda do profissional (${interval.appointmentId}, ${interval.startMinutes}-${interval.endMinutes})`
+          );
+        } else {
+          throw new BookingTransactionError(
+            'SLOT_CONFLICT',
+            `O profissional "${barberData.name}" já possui agendamento no horário solicitado.`
+          );
+        }
       }
     }
+
+    let healedUniversalIntervals = [...activeUniversalIntervals];
+    let universalOrphansFound = false;
 
     // 2. Conflito com agendamentos legados universais
     for (const interval of activeUniversalIntervals) {
       if (isIntervalOverlapping(newStart, newEnd, interval.startMinutes, interval.endMinutes)) {
-        throw new BookingTransactionError(
-          'SLOT_CONFLICT',
-          'O horário solicitado está bloqueado por um agendamento universal da barbearia.'
-        );
+        let isOrphan = false;
+        if (interval.appointmentId) {
+          const aptSnap = await transaction.get(db.collection('appointments').doc(interval.appointmentId));
+          if (!aptSnap.exists || aptSnap.data()?.status === 'cancelled') {
+            isOrphan = true;
+          } else {
+            const busySlotSnap = await transaction.get(db.collection('busy_slots').doc(interval.appointmentId));
+            if (busySlotSnap.exists && busySlotSnap.data()?.status === 'cancelled') {
+              isOrphan = true;
+            }
+          }
+        }
+
+        if (isOrphan) {
+          healedUniversalIntervals = healedUniversalIntervals.filter((i) => i.appointmentId !== interval.appointmentId);
+          universalOrphansFound = true;
+          console.warn(
+            `[createBookingTransaction] Autocura: intervalo órfão universal removido (${interval.appointmentId}, ${interval.startMinutes}-${interval.endMinutes})`
+          );
+        } else {
+          throw new BookingTransactionError(
+            'SLOT_CONFLICT',
+            'O horário solicitado está bloqueado por um agendamento universal da barbearia.'
+          );
+        }
       }
     }
 
@@ -720,21 +771,21 @@ export async function createBookingTransaction(
         businessId,
         date,
         professionalId,
-        intervals: [...activeProfIntervals, newInterval],
+        intervals: [...healedProfIntervals, newInterval],
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
-    // 2. Se o controle universal ainda não existia, persiste sua inicialização
-    if (!universalScheduleSnap.exists) {
+    // 2. Se o controle universal ainda não existia ou passou por autocura, persiste
+    if (!universalScheduleSnap.exists || universalOrphansFound) {
       transaction.set(
         universalScheduleDocRef,
         {
           businessId,
           date,
           professionalId: 'universal',
-          intervals: activeUniversalIntervals,
+          intervals: healedUniversalIntervals,
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
