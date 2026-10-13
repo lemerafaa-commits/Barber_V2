@@ -1,11 +1,12 @@
-import React from 'react';
-import { ShieldAlert, ArrowLeft, LogOut, Store } from 'lucide-react';
+import React, { useState } from 'react';
+import { ShieldAlert, ArrowLeft, LogOut, Store, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface MasterAccessDeniedProps {
   userEmail?: string | null;
   onLogout: () => void;
   onGoToAdminPage: () => void;
   onGoToPublicPage: () => void;
+  onRefreshPermissions?: () => Promise<boolean | void> | void;
 }
 
 export const MasterAccessDenied: React.FC<MasterAccessDeniedProps> = ({
@@ -13,7 +14,30 @@ export const MasterAccessDenied: React.FC<MasterAccessDeniedProps> = ({
   onLogout,
   onGoToAdminPage,
   onGoToPublicPage,
+  onRefreshPermissions,
 }) => {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshFeedback, setRefreshFeedback] = useState<string | null>(null);
+
+  const handleRefresh = async () => {
+    if (!onRefreshPermissions || isRefreshing) return;
+    setIsRefreshing(true);
+    setRefreshFeedback(null);
+    try {
+      const result = await onRefreshPermissions();
+      // Se a função retornar explicitamente false ou a tela continuar renderizada após a checagem:
+      if (result === false) {
+        setRefreshFeedback(
+          'Token atualizado com sucesso no Firebase Auth, porém o custom claim "master: true" ainda não foi detectado.'
+        );
+      }
+    } catch (err: any) {
+      setRefreshFeedback(err?.message || 'Falha ao sincronizar token com o Firebase Auth.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8 antialiased selection:bg-rose-500 selection:text-white">
       <div className="sm:mx-auto sm:w-full sm:max-w-md px-4">
@@ -31,8 +55,8 @@ export const MasterAccessDenied: React.FC<MasterAccessDeniedProps> = ({
             Privilégios Insuficientes
           </h2>
           <p className="mt-1 text-xs sm:text-sm text-zinc-400">
-            A área <code className="text-zinc-200">/master</code> é estritamente restrita a
-            Superadministradores da plataforma Barber SaaS.
+            A área <code className="text-zinc-200">/master</code> exige credenciais com o custom claim{' '}
+            <code className="text-amber-400 font-mono">master: true</code> provisionado no Firebase Auth.
           </p>
         </div>
 
@@ -46,12 +70,34 @@ export const MasterAccessDenied: React.FC<MasterAccessDeniedProps> = ({
               {userEmail || 'Usuário autenticado sem e-mail'}
             </span>
             <p className="text-[11px] text-zinc-400 pt-1">
-              Seu perfil possui permissões operacionais de barbearia, mas não está cadastrado como
-              Master Root Administrator.
+              Esta conta não possui a permissão de Superadministrador (Master) da plataforma. O e-mail por si só não concede privilégios.
             </p>
           </div>
 
+          {refreshFeedback && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <span>{refreshFeedback}</span>
+            </div>
+          )}
+
           <div className="space-y-2.5 pt-1 text-xs">
+            {/* Atualizar permissões do token */}
+            {onRefreshPermissions && (
+              <button
+                id="master-denied-refresh-btn"
+                type="button"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="w-full py-2.5 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-50 text-white font-semibold flex items-center justify-between transition-colors cursor-pointer shadow-lg shadow-indigo-600/20"
+              >
+                <span>
+                  {isRefreshing ? 'Consultando Firebase Auth...' : 'Atualizar Permissões da Sessão'}
+                </span>
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+
             {/* Ir para o painel da barbearia */}
             <button
               id="master-denied-go-admin-btn"
@@ -70,7 +116,7 @@ export const MasterAccessDenied: React.FC<MasterAccessDeniedProps> = ({
               onClick={onLogout}
               className="w-full py-2.5 px-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium flex items-center justify-between transition-colors cursor-pointer border border-zinc-700/60"
             >
-              <span>Sair desta conta (Entrar como Superadmin)</span>
+              <span>Sair desta conta (Trocar de Usuário)</span>
               <LogOut className="w-4 h-4 text-zinc-400" />
             </button>
 

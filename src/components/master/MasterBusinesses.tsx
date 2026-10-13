@@ -155,8 +155,16 @@ export const MasterBusinesses: React.FC<MasterBusinessesProps> = ({ businesses }
                             <Store className="w-4 h-4" />
                           </div>
                           <div>
-                            <div className="font-semibold text-white group-hover:text-indigo-300 transition-colors">
-                              {biz.name}
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                                {biz.name}
+                              </span>
+                              {biz.isLiveFirestore && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                  Firestore Real
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-zinc-400 font-mono">
                               /{biz.slug} • {biz.city}-{biz.state}

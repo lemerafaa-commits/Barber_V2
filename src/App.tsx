@@ -698,6 +698,16 @@ export default function App() {
             }}
             onGoToAdminPage={() => navigateTo('/admin')}
             onGoToPublicPage={() => navigateTo('/')}
+            onRefreshPermissions={async () => {
+              try {
+                const authorized = await isAuthorizedMasterUser(adminUser, true);
+                setIsMasterAuthorized(authorized);
+                return authorized;
+              } catch (err) {
+                console.warn('[MasterAuth] Erro ao recarregar claims do usuário:', err);
+                return false;
+              }
+            }}
           />
         );
       }

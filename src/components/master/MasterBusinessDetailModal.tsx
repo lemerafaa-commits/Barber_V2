@@ -110,6 +110,12 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
                   {business.name}
                 </h3>
                 {planBadge}
+                {business.isLiveFirestore && (
+                  <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Firestore Real
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs text-zinc-400 flex-wrap">
                 <span className="font-mono text-zinc-300">/{business.slug}</span>
@@ -396,6 +402,50 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
                   <span className="text-[10px] text-emerald-400">Atividade regular na rede</span>
                 </div>
               </div>
+
+              {/* Detalhamento de Dados em Tempo Real do Firestore (Passo 2B) */}
+              {business.isLiveFirestore && business.liveStats && (
+                <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="font-semibold text-emerald-400 text-xs flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Dados em Tempo Real do Firestore (Negócio Canônico: {business.slug})
+                    </span>
+                    {business.liveStats.lastSyncedAt && (
+                      <span className="text-[10px] text-zinc-400">
+                        Sincronizado às {new Date(business.liveStats.lastSyncedAt).toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-[10px] text-zinc-400 block">Confirmados</span>
+                      <span className="text-base font-bold text-emerald-400">
+                        {business.liveStats.confirmedAppointments}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-[10px] text-zinc-400 block">Concluídos</span>
+                      <span className="text-base font-bold text-blue-400">
+                        {business.liveStats.completedAppointments}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-[10px] text-zinc-400 block">Serviços Ativos</span>
+                      <span className="text-base font-bold text-indigo-400">
+                        {business.liveStats.activeServices} / {business.liveStats.totalServices}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <span className="text-[10px] text-zinc-400 block">Profissionais Ativos</span>
+                      <span className="text-base font-bold text-purple-400">
+                        {business.liveStats.activeProfessionals} / {business.liveStats.totalProfessionals}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 

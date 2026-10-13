@@ -31,11 +31,11 @@ export const MasterLogin: React.FC<MasterLoginProps> = ({
 
     try {
       const user = await signInAdmin(email, password);
-      const isAuthorized = await isAuthorizedMasterUser(user);
+      const isAuthorized = await isAuthorizedMasterUser(user, true);
 
       if (!isAuthorized) {
         setErrorMessage(
-          'Acesso negado. Esta conta não possui privilégios de Superadministrador (Master) da plataforma.'
+          'Acesso negado. Esta conta não possui privilégios de Superadministrador (claim master: true) da plataforma.'
         );
         return;
       }

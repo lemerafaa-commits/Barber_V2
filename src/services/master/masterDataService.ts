@@ -21,7 +21,9 @@ import {
   MonthlyCohortDataPoint,
   AppointmentStatus,
   AppointmentStatusHistory,
+  MasterJoaoBarberRealResponse,
 } from '../../types/master';
+import { auth, isFirebaseConfigured } from '../firebase/config';
 
 // In-memory state clone for local session reactivity
 let localAppointments: MasterAppointment[] = [...MOCK_MASTER_APPOINTMENTS];
@@ -29,15 +31,43 @@ let localAppointments: MasterAppointment[] = [...MOCK_MASTER_APPOINTMENTS];
 /**
  * Master Data Service
  *
- * Abstraction layer for Master Dashboard data queries.
- * In this phase, it returns structured, multi-tenant prepared MOCK data asynchronously.
- * In future phases, these methods can seamlessly plug into Firestore collections:
- *  - /businesses
- *  - /users
- *  - /appointments (global query across all businessId)
- *  - /subscriptions
+ * Camada de abstração para consultas de dados do Master Dashboard.
+ * No Passo 2B, integra-se de forma segura à API real /api/master/joao-barber
+ * enriquecendo o negócio canônico 'joao-barber' com dados vivos do Firestore,
+ * mantendo compatibilidade resiliente com o ambiente de testes e mocks.
  */
 export class MasterDataService {
+  /**
+   * Consulta a API segura server-side GET /api/master/joao-barber
+   * enviando o Bearer ID Token do usuário Master autenticado.
+   */
+  async getJoaoBarberRealData(): Promise<MasterJoaoBarberRealResponse | null> {
+    if (!isFirebaseConfigured || !auth || !auth.currentUser) {
+      return null;
+    }
+
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/master/joao-barber', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`[MasterDataService] /api/master/joao-barber retornou status ${response.status}`);
+        return null;
+      }
+
+      const data: MasterJoaoBarberRealResponse = await response.json();
+      return data;
+    } catch (err) {
+      console.warn('[MasterDataService] Falha na requisição para /api/master/joao-barber:', err);
+      return null;
+    }
+  }
+
   async getPlatformMetrics(): Promise<PlatformMetrics> {
     return Promise.resolve({ ...MOCK_PLATFORM_METRICS });
   }
@@ -51,12 +81,49 @@ export class MasterDataService {
   }
 
   async getBusinesses(): Promise<MasterBusiness[]> {
-    return Promise.resolve([...MOCK_MASTER_BUSINESSES]);
+    const list = [...MOCK_MASTER_BUSINESSES];
+    try {
+      const realData = await this.getJoaoBarberRealData();
+      if (realData && realData.success) {
+        const joaoIndex = list.findIndex(
+          (b) => b.slug === 'joao-barber' || b.id === 'biz_joao_barber'
+        );
+        if (joaoIndex !== -1) {
+          const current = list[joaoIndex];
+          const prof = realData.profile;
+          list[joaoIndex] = {
+            ...current,
+            name: prof?.name || current.name,
+            ownerPhone: prof?.whatsapp || current.ownerPhone,
+            city: prof?.address?.city || current.city,
+            state: prof?.address?.state || current.state,
+            appointmentCount: realData.summary.totalAppointments,
+            monthlyRevenue:
+              realData.summary.calculatedRevenue > 0
+                ? realData.summary.calculatedRevenue
+                : current.monthlyRevenue,
+            cancellationsCount: realData.summary.cancelledAppointments,
+            isLiveFirestore: true,
+            liveStats: {
+              ...realData.summary,
+              lastSyncedAt: realData.timestamp,
+            },
+          };
+        }
+      }
+    } catch (err) {
+      console.warn(
+        '[MasterDataService] Erro ao carregar dados reais de joao-barber em getBusinesses:',
+        err
+      );
+    }
+    return list;
   }
 
   async getBusinessById(businessId: string): Promise<MasterBusiness | null> {
-    const biz = MOCK_MASTER_BUSINESSES.find((b) => b.id === businessId);
-    return Promise.resolve(biz ? { ...biz } : null);
+    const all = await this.getBusinesses();
+    const found = all.find((b) => b.id === businessId || b.slug === businessId);
+    return found ? { ...found } : null;
   }
 
   async getUsers(): Promise<MasterUser[]> {

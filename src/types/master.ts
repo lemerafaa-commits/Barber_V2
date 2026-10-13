@@ -38,6 +38,43 @@ export interface MasterBusiness {
   cancelReason?: string;
   cancelFeedback?: string;
   cancellationsCount?: number;
+  // Campos de sincronização real com o Firestore (Passo 2B)
+  isLiveFirestore?: boolean;
+  liveStats?: MasterBusinessLiveStats;
+}
+
+export interface MasterBusinessLiveStats {
+  totalAppointments: number;
+  confirmedAppointments: number;
+  completedAppointments: number;
+  cancelledAppointments: number;
+  calculatedRevenue: number;
+  totalServices: number;
+  activeServices: number;
+  totalProfessionals: number;
+  activeProfessionals: number;
+  lastSyncedAt?: string;
+}
+
+export interface MasterJoaoBarberRealResponse {
+  success: boolean;
+  businessId: string;
+  profile: {
+    businessId: string;
+    name: string;
+    description: string;
+    logoUrl: string;
+    whatsapp: string;
+    instagram: string;
+    address: Record<string, any>;
+    openingHours: Record<string, any>;
+  } | null;
+  summary: MasterBusinessLiveStats;
+  services: any[];
+  professionals: any[];
+  appointmentsCount: number;
+  recentAppointments?: any[];
+  timestamp: string;
 }
 
 export interface MasterUser {

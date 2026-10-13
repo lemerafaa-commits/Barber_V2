@@ -101,9 +101,58 @@ function bookingsDevApiPlugin(): Plugin {
   };
 }
 
+function masterDevApiPlugin(): Plugin {
+  return {
+    name: 'master-dev-api',
+    configureServer(server) {
+      server.middlewares.use('/api/master/joao-barber', async (req: any, res: any) => {
+        // Polyfill compatível com Vercel Serverless Function no ambiente local
+        if (typeof res.status !== 'function') {
+          res.status = function (statusCode: number) {
+            res.statusCode = statusCode;
+            return res;
+          };
+        }
+        if (typeof res.json !== 'function') {
+          res.json = function (data: any) {
+            if (!res.headersSent) {
+              res.setHeader('Content-Type', 'application/json');
+            }
+            res.end(JSON.stringify(data));
+            return res;
+          };
+        }
+
+        try {
+          const { default: handler } = await import('./api/master/joao-barber.ts');
+          await handler(req, res);
+        } catch (err: any) {
+          if (!res.writableEnded) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'INTERNAL_ERROR',
+                message: err?.message || 'Erro interno no middleware local do Vite',
+              })
+            );
+          }
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), whatsappDevApiPlugin(), bookingsDevApiPlugin()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      whatsappDevApiPlugin(),
+      bookingsDevApiPlugin(),
+      masterDevApiPlugin(),
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
