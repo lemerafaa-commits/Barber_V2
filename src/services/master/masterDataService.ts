@@ -28,25 +28,46 @@ import { auth, isFirebaseConfigured } from '../firebase/config';
 // In-memory state clone for local session reactivity
 let localAppointments: MasterAppointment[] = [...MOCK_MASTER_APPOINTMENTS];
 
+export interface MasterApiSyncState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  statusCode?: number;
+  errorMessage?: string;
+  lastAttemptAt?: string;
+  responseSummary?: any;
+}
+
 /**
  * Master Data Service
  *
  * Camada de abstração para consultas de dados do Master Dashboard.
  * No Passo 2B, integra-se de forma segura à API real /api/master/joao-barber
  * enriquecendo o negócio canônico 'joao-barber' com dados vivos do Firestore,
- * mantendo compatibilidade resiliente com o ambiente de testes e mocks.
+ * mantendo diagnóstico explícito de falhas e compatibilidade com o ambiente.
  */
 export class MasterDataService {
+  private syncState: MasterApiSyncState = { status: 'idle' };
+
+  getSyncState(): MasterApiSyncState {
+    return { ...this.syncState };
+  }
+
   /**
    * Consulta a API segura server-side GET /api/master/joao-barber
    * enviando o Bearer ID Token do usuário Master autenticado.
    */
   async getJoaoBarberRealData(): Promise<MasterJoaoBarberRealResponse | null> {
     if (!isFirebaseConfigured || !auth || !auth.currentUser) {
+      this.syncState = {
+        status: 'error',
+        errorMessage: 'Firebase não configurado ou usuário Master não autenticado no cliente.',
+        lastAttemptAt: new Date().toISOString(),
+      };
+      console.warn('[MasterDataService] ' + this.syncState.errorMessage);
       return null;
     }
 
     try {
+      this.syncState = { status: 'loading', lastAttemptAt: new Date().toISOString() };
       const idToken = await auth.currentUser.getIdToken();
       const response = await fetch('/api/master/joao-barber', {
         method: 'GET',
@@ -56,14 +77,53 @@ export class MasterDataService {
       });
 
       if (!response.ok) {
-        console.warn(`[MasterDataService] /api/master/joao-barber retornou status ${response.status}`);
+        let errorData: any = null;
+        try {
+          errorData = await response.json();
+        } catch {
+          // corpo não-JSON
+        }
+        const errorMsg =
+          errorData?.message ||
+          errorData?.error ||
+          `Erro HTTP ${response.status} ao consultar API /api/master/joao-barber`;
+
+        this.syncState = {
+          status: 'error',
+          statusCode: response.status,
+          errorMessage: errorMsg,
+          lastAttemptAt: new Date().toISOString(),
+        };
+
+        console.error(
+          `[MasterDataService] Erro ${response.status} retornado por /api/master/joao-barber:`,
+          errorData || errorMsg
+        );
         return null;
       }
 
       const data: MasterJoaoBarberRealResponse = await response.json();
+
+      this.syncState = {
+        status: 'success',
+        statusCode: 200,
+        lastAttemptAt: new Date().toISOString(),
+        responseSummary: data.summary,
+      };
+
+      console.info(
+        '[MasterDataService] Sincronização real com Firestore joao-barber bem-sucedida:',
+        data.summary
+      );
       return data;
-    } catch (err) {
-      console.warn('[MasterDataService] Falha na requisição para /api/master/joao-barber:', err);
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Falha de rede ou conexão com /api/master/joao-barber';
+      this.syncState = {
+        status: 'error',
+        errorMessage: errorMsg,
+        lastAttemptAt: new Date().toISOString(),
+      };
+      console.error('[MasterDataService] Exceção na requisição para /api/master/joao-barber:', err);
       return null;
     }
   }
@@ -84,10 +144,11 @@ export class MasterDataService {
     const list = [...MOCK_MASTER_BUSINESSES];
     try {
       const realData = await this.getJoaoBarberRealData();
+      const joaoIndex = list.findIndex(
+        (b) => b.slug === 'joao-barber' || b.id === 'biz_joao_barber'
+      );
+
       if (realData && realData.success) {
-        const joaoIndex = list.findIndex(
-          (b) => b.slug === 'joao-barber' || b.id === 'biz_joao_barber'
-        );
         if (joaoIndex !== -1) {
           const current = list[joaoIndex];
           const prof = realData.profile;
@@ -104,15 +165,23 @@ export class MasterDataService {
                 : current.monthlyRevenue,
             cancellationsCount: realData.summary.cancelledAppointments,
             isLiveFirestore: true,
+            syncError: undefined,
             liveStats: {
               ...realData.summary,
               lastSyncedAt: realData.timestamp,
             },
           };
         }
+      } else if (joaoIndex !== -1 && this.syncState.status === 'error') {
+        // Registra explicitamente o erro no negócio para que falhas de conexão não passem desapercebidas
+        list[joaoIndex] = {
+          ...list[joaoIndex],
+          isLiveFirestore: false,
+          syncError: this.syncState.errorMessage || `Falha na API (HTTP ${this.syncState.statusCode || 'desconhecido'})`,
+        };
       }
     } catch (err) {
-      console.warn(
+      console.error(
         '[MasterDataService] Erro ao carregar dados reais de joao-barber em getBusinesses:',
         err
       );

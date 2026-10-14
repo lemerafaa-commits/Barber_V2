@@ -165,6 +165,15 @@ export const MasterBusinesses: React.FC<MasterBusinessesProps> = ({ businesses }
                                   Firestore Real
                                 </span>
                               )}
+                              {biz.syncError && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                                  title={biz.syncError}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                  Falha Firestore API
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-zinc-400 font-mono">
                               /{biz.slug} • {biz.city}-{biz.state}

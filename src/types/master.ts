@@ -40,6 +40,7 @@ export interface MasterBusiness {
   cancellationsCount?: number;
   // Campos de sincronização real com o Firestore (Passo 2B)
   isLiveFirestore?: boolean;
+  syncError?: string;
   liveStats?: MasterBusinessLiveStats;
 }
 

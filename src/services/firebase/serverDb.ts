@@ -162,6 +162,31 @@ export function computeRequestFingerprint(input: {
   return `${input.businessId}|${input.professionalId}|${input.date}|${input.time}|${sortedServices}|${input.customerPhone.trim()}`;
 }
 
+function normalizeEnvString(val?: string): string | undefined {
+  if (!val) return undefined;
+  let s = val.trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s || undefined;
+}
+
+function normalizePrivateKey(rawKey?: string): string | undefined {
+  if (!rawKey) return undefined;
+  let key = rawKey.trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  key = key.replace(/\\n/g, '\n').trim();
+  return key || undefined;
+}
+
 /**
  * Garante a inicialização única do Firebase Admin App no lado do servidor.
  * Reutiliza FIREBASE_SERVICE_ACCOUNT, chaves individuais ou ADC com fallback para saas-barberaria-teste-v1.
@@ -171,16 +196,14 @@ export function ensureAdminApp(): App {
     return adminApp;
   }
 
-  const envProjectId = process.env.FIREBASE_PROJECT_ID;
+  const envProjectId = normalizeEnvString(process.env.FIREBASE_PROJECT_ID);
   const defaultProjectId = 'saas-barberaria-teste-v1';
   const projectId = envProjectId || defaultProjectId;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY
-    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-    : undefined;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+  const privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
+  const clientEmail = normalizeEnvString(process.env.FIREBASE_CLIENT_EMAIL);
+  const serviceAccountJson = normalizeEnvString(process.env.FIREBASE_SERVICE_ACCOUNT);
 
-  const hasPrivateKey = Boolean(process.env.FIREBASE_PRIVATE_KEY);
+  const hasPrivateKey = Boolean(privateKey);
   const hasServiceAccount = Boolean(serviceAccountJson);
 
   if (getApps().length > 0) {
@@ -209,14 +232,19 @@ export function ensureAdminApp(): App {
       diagClientEmail = clientEmail;
       diagProjectId = projectId;
 
-      adminApp = initializeApp({
-        credential: cert({
+      try {
+        adminApp = initializeApp({
+          credential: cert({
+            projectId,
+            clientEmail,
+            privateKey,
+          }),
           projectId,
-          clientEmail,
-          privateKey,
-        }),
-        projectId,
-      });
+        });
+      } catch (err: any) {
+        console.error('[Firebase Admin Init] Erro ao instanciar credencial com FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY:', err?.message);
+        throw err;
+      }
     } else {
       diagCredentialSource = 'Application Default Credentials';
       diagClientEmail = '(ADC / default environment)';
@@ -230,6 +258,8 @@ export function ensureAdminApp(): App {
   console.log('[Firebase Admin Init] Process FIREBASE_PROJECT_ID:', envProjectId || '(not set)');
   console.log('[Firebase Admin Init] FIREBASE_SERVICE_ACCOUNT present:', hasServiceAccount);
   console.log('[Firebase Admin Init] FIREBASE_PRIVATE_KEY present:', hasPrivateKey);
+  console.log('[Firebase Admin Init] FIREBASE_PRIVATE_KEY length:', privateKey?.length || 0);
+  console.log('[Firebase Admin Init] FIREBASE_PRIVATE_KEY header valid:', Boolean(privateKey?.startsWith('-----BEGIN PRIVATE KEY-----')));
   console.log('[Firebase Admin Init] Credential method used:', diagCredentialSource);
   console.log('[Firebase Admin Init] Client email used:', diagClientEmail);
   console.log('[Firebase Admin Init] ProjectId resolved:', diagProjectId);

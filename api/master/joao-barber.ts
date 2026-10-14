@@ -15,7 +15,7 @@ const CANONICAL_BUSINESS_ID = 'joao-barber';
 
 interface ErrorResponse {
   success: false;
-  error: 'METHOD_NOT_ALLOWED' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'FIREBASE_CONFIG_ERROR' | 'INTERNAL_ERROR';
+  error: 'METHOD_NOT_ALLOWED' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'FIREBASE_CONFIG_ERROR' | 'INTERNAL_ERROR' | 'FIRESTORE_ERROR';
   message: string;
 }
 
@@ -138,13 +138,9 @@ export default async function handler(req: any, res: any) {
 
     // 5.1 Documento de perfil do negócio: businesses/joao-barber
     let businessProfile: Record<string, any> | null = null;
-    try {
-      const businessSnap = await db.collection('businesses').doc(CANONICAL_BUSINESS_ID).get();
-      if (businessSnap.exists) {
-        businessProfile = { id: businessSnap.id, ...businessSnap.data() };
-      }
-    } catch (bizErr) {
-      console.warn('[API Master] Aviso: falha ao ler documento businesses/joao-barber:', bizErr);
+    const businessSnap = await db.collection('businesses').doc(CANONICAL_BUSINESS_ID).get();
+    if (businessSnap.exists) {
+      businessProfile = { id: businessSnap.id, ...businessSnap.data() };
     }
 
     // 5.2 Agendamentos reais: appointments (filtrado estritamente por businessId)
@@ -155,100 +151,88 @@ export default async function handler(req: any, res: any) {
     let cancelledCount = 0;
     let calculatedRevenue = 0;
 
-    try {
-      const aptQuerySnap = await db
-        .collection('appointments')
-        .where('businessId', '==', CANONICAL_BUSINESS_ID)
-        .get();
+    const aptQuerySnap = await db
+      .collection('appointments')
+      .where('businessId', '==', CANONICAL_BUSINESS_ID)
+      .get();
 
-      aptQuerySnap.forEach((doc) => {
-        totalAppointments++;
-        const data = doc.data();
-        const price = typeof data.totalPrice === 'number' ? data.totalPrice : Number(data.totalPrice) || 0;
-        const status = data.status || 'confirmed';
+    aptQuerySnap.forEach((doc) => {
+      totalAppointments++;
+      const data = doc.data();
+      const price = typeof data.totalPrice === 'number' ? data.totalPrice : Number(data.totalPrice) || 0;
+      const status = data.status || 'confirmed';
 
-        if (status === 'confirmed') confirmedCount++;
-        else if (status === 'completed') completedCount++;
-        else if (status === 'cancelled') cancelledCount++;
+      if (status === 'confirmed') confirmedCount++;
+      else if (status === 'completed') completedCount++;
+      else if (status === 'cancelled') cancelledCount++;
 
-        if (status === 'confirmed' || status === 'completed') {
-          calculatedRevenue += price;
-        }
+      if (status === 'confirmed' || status === 'completed') {
+        calculatedRevenue += price;
+      }
 
-        // Sanitização de campos: não expor dados internos sensíveis
-        appointments.push({
-          id: doc.id,
-          businessId: CANONICAL_BUSINESS_ID,
-          customerName: data.customerName || 'Cliente',
-          date: data.date,
-          time: data.time,
-          totalPrice: price,
-          duration: data.duration || 30,
-          status,
-          createdAt: data.createdAt ? String(data.createdAt) : '',
-          professionalName: data.professionalName || 'Não especificado',
-        });
+      // Sanitização de campos: não expor dados internos sensíveis
+      appointments.push({
+        id: doc.id,
+        businessId: CANONICAL_BUSINESS_ID,
+        customerName: data.customerName || 'Cliente',
+        date: data.date,
+        time: data.time,
+        totalPrice: price,
+        duration: data.duration || 30,
+        status,
+        createdAt: data.createdAt ? String(data.createdAt) : '',
+        professionalName: data.professionalName || 'Não especificado',
       });
-    } catch (aptErr) {
-      console.warn('[API Master] Aviso: falha ao consultar appointments:', aptErr);
-    }
+    });
 
     // 5.3 Serviços cadastrados: services (filtrado estritamente por businessId)
     const services: any[] = [];
     let activeServicesCount = 0;
-    try {
-      const srvQuerySnap = await db
-        .collection('services')
-        .where('businessId', '==', CANONICAL_BUSINESS_ID)
-        .get();
+    const srvQuerySnap = await db
+      .collection('services')
+      .where('businessId', '==', CANONICAL_BUSINESS_ID)
+      .get();
 
-      srvQuerySnap.forEach((doc) => {
-        const data = doc.data();
-        const active = data.active !== false;
-        if (active) activeServicesCount++;
-        services.push({
-          id: doc.id,
-          businessId: CANONICAL_BUSINESS_ID,
-          name: data.name || '',
-          categoryId: data.categoryId || '',
-          categoryName: data.categoryName || '',
-          price: typeof data.price === 'number' ? data.price : Number(data.price) || 0,
-          durationMinutes: typeof data.durationMinutes === 'number' ? data.durationMinutes : Number(data.durationMinutes) || 30,
-          active,
-          description: data.description || '',
-        });
+    srvQuerySnap.forEach((doc) => {
+      const data = doc.data();
+      const active = data.active !== false;
+      if (active) activeServicesCount++;
+      services.push({
+        id: doc.id,
+        businessId: CANONICAL_BUSINESS_ID,
+        name: data.name || '',
+        categoryId: data.categoryId || '',
+        categoryName: data.categoryName || '',
+        price: typeof data.price === 'number' ? data.price : Number(data.price) || 0,
+        durationMinutes: typeof data.durationMinutes === 'number' ? data.durationMinutes : Number(data.durationMinutes) || 30,
+        active,
+        description: data.description || '',
       });
-    } catch (srvErr) {
-      console.warn('[API Master] Aviso: falha ao consultar services:', srvErr);
-    }
+    });
 
     // 5.4 Profissionais cadastrados: professionals (filtrado estritamente por businessId)
     const professionals: any[] = [];
     let activeProfessionalsCount = 0;
-    try {
-      const profQuerySnap = await db
-        .collection('professionals')
-        .where('businessId', '==', CANONICAL_BUSINESS_ID)
-        .get();
+    const profQuerySnap = await db
+      .collection('professionals')
+      .where('businessId', '==', CANONICAL_BUSINESS_ID)
+      .get();
 
-      profQuerySnap.forEach((doc) => {
-        const data = doc.data();
-        const active = data.status === 'active';
-        if (active) activeProfessionalsCount++;
-        professionals.push({
-          id: doc.id,
-          businessId: CANONICAL_BUSINESS_ID,
-          name: data.name || '',
-          whatsapp: data.whatsapp || '',
-          email: data.email || '',
-          status: data.status || 'active',
-          serviceMode: data.serviceMode || 'all',
-          serviceIds: Array.isArray(data.serviceIds) ? data.serviceIds : [],
-        });
+    profQuerySnap.forEach((doc) => {
+      const data = doc.data();
+      const active = data.status === 'active';
+      if (active) activeProfessionalsCount++;
+      professionals.push({
+        id: doc.id,
+        businessId: CANONICAL_BUSINESS_ID,
+        name: data.name || '',
+        whatsapp: data.whatsapp || '',
+        email: data.email || '',
+        status: data.status || 'active',
+        serviceMode: data.serviceMode || 'all',
+        serviceIds: Array.isArray(data.serviceIds) ? data.serviceIds : [],
       });
-    } catch (profErr) {
-      console.warn('[API Master] Aviso: falha ao consultar professionals:', profErr);
-    }
+    });
 
     // 6. Resposta estruturada somente de leitura
     return sendResponse(res, 200, {
@@ -285,11 +269,11 @@ export default async function handler(req: any, res: any) {
       timestamp: new Date().toISOString(),
     });
   } catch (serverErr: any) {
-    console.error('[API Master] Erro ao consultar dados no Firestore:', serverErr);
+    console.error('[API Master] Erro ao consultar dados no Firestore:', serverErr?.message || serverErr);
     return sendResponse(res, 500, {
       success: false,
-      error: 'INTERNAL_ERROR',
-      message: 'Erro interno ao consultar dados do negócio.',
+      error: 'FIRESTORE_ERROR',
+      message: 'Erro interno ao consultar dados do negócio no Firestore.',
     } as ErrorResponse);
   }
 }

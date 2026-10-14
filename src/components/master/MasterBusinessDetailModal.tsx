@@ -116,6 +116,15 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
                     Firestore Real
                   </span>
                 )}
+                {business.syncError && (
+                  <span
+                    className="px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center gap-1"
+                    title={business.syncError}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                    Falha API Firestore
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs text-zinc-400 flex-wrap">
                 <span className="font-mono text-zinc-300">/{business.slug}</span>
@@ -170,6 +179,18 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
 
         {/* Modal Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 text-zinc-300 text-xs">
+          {/* Diagnostic Sync Alert if API failed */}
+          {business.syncError && (
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 text-xs text-rose-300">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold text-rose-200">Aviso: Falha ao consultar Firestore real</div>
+                <div className="text-[11px] text-rose-300/80 mt-1 font-mono">{business.syncError}</div>
+                <div className="text-[11px] text-zinc-400 mt-1">Os dados exibidos nesta janela são de contingência local. Verifique as credenciais do Firebase Admin na Vercel e os logs do servidor.</div>
+              </div>
+            </div>
+          )}
+
           {/* BLOCO 1: INFORMAÇÕES DA EMPRESA */}
           {(activeSection === 'all' || activeSection === 'company') && (
             <section className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 space-y-4">
