@@ -22,6 +22,7 @@ import {
   AppointmentStatus,
   AppointmentStatusHistory,
   MasterJoaoBarberRealResponse,
+  MasterProfessional,
 } from '../../types/master';
 import { auth, isFirebaseConfigured } from '../firebase/config';
 
@@ -166,6 +167,7 @@ export class MasterDataService {
             cancellationsCount: realData.summary.cancelledAppointments,
             isLiveFirestore: true,
             syncError: undefined,
+            professionals: Array.isArray(realData.professionals) ? realData.professionals : [],
             liveStats: {
               ...realData.summary,
               lastSyncedAt: realData.timestamp,
@@ -193,6 +195,21 @@ export class MasterDataService {
     const all = await this.getBusinesses();
     const found = all.find((b) => b.id === businessId || b.slug === businessId);
     return found ? { ...found } : null;
+  }
+
+  /**
+   * Obtém a lista de profissionais cadastrados para uma barbearia.
+   * Para o negócio canônico 'joao-barber', busca os profissionais reais
+   * sincronizados via API do Firestore, com fallback limpo se não encontrado.
+   */
+  async getBusinessProfessionals(businessIdOrSlug: string): Promise<MasterProfessional[]> {
+    if (businessIdOrSlug === 'joao-barber' || businessIdOrSlug === 'biz_joao_barber') {
+      const realData = await this.getJoaoBarberRealData();
+      if (realData && realData.success && Array.isArray(realData.professionals)) {
+        return realData.professionals;
+      }
+    }
+    return [];
   }
 
   async getUsers(): Promise<MasterUser[]> {

@@ -42,6 +42,19 @@ export interface MasterBusiness {
   isLiveFirestore?: boolean;
   syncError?: string;
   liveStats?: MasterBusinessLiveStats;
+  professionals?: MasterProfessional[];
+}
+
+export interface MasterProfessional {
+  id: string;
+  businessId: string;
+  name: string;
+  whatsapp?: string;
+  email?: string;
+  status: 'active' | 'inactive';
+  serviceMode?: 'all' | 'custom';
+  serviceIds?: string[];
+  photoUrl?: string;
 }
 
 export interface MasterBusinessLiveStats {
@@ -72,7 +85,7 @@ export interface MasterJoaoBarberRealResponse {
   } | null;
   summary: MasterBusinessLiveStats;
   services: any[];
-  professionals: any[];
+  professionals: MasterProfessional[];
   appointmentsCount: number;
   recentAppointments?: any[];
   timestamp: string;
