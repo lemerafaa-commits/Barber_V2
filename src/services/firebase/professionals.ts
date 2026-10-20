@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
 import { Barber, BarberStatus, BarberServiceMode } from '../../types/admin';
-import { MOCK_BARBERS, DEFAULT_WEEKLY_SCHEDULE } from '../../data/adminMockData';
+import { DEFAULT_WEEKLY_SCHEDULE } from '../../data/adminMockData';
 
 export const CANONICAL_BUSINESS_ID = 'joao-barber';
 const COLLECTION_PATH = 'professionals';
@@ -66,60 +66,19 @@ export function normalizeFirestoreProfessional(docId: string, data: Record<strin
 }
 
 /**
- * Inicializa os profissionais padrão da barbearia caso a coleção esteja vazia no Firestore.
+ * Desativado (V4_07): Esta rotina não grava mais profissionais mockados no Firestore.
+ * Preservada por compatibilidade de assinatura, retornando array vazio sem efeitos colaterais.
  */
 export async function seedInitialProfessionalsIfEmpty(
   businessId = CANONICAL_BUSINESS_ID
 ): Promise<Barber[]> {
-  if (!isFirebaseConfigured || !db) {
-    console.info('[Equipe Firestore] seedInitialProfessionalsIfEmpty: Firebase não configurado (Demo Mode). Retornando MOCK_BARBERS.');
-    return MOCK_BARBERS;
-  }
-
-  try {
-    console.info(`[Equipe Firestore] Auto-seed de profissionais para businessId="${businessId}"...`);
-    const createdBarbers: Barber[] = [];
-
-    for (const barber of MOCK_BARBERS) {
-      const docId = `${businessId}_${barber.id}`;
-      const payload = {
-        businessId,
-        name: barber.name,
-        photoUrl: barber.photoUrl,
-        whatsapp: barber.whatsapp,
-        email: barber.email || '',
-        status: barber.status,
-        active: barber.status === 'active',
-        serviceMode: barber.serviceMode,
-        serviceIds: barber.serviceIds || [],
-        serviceConfigs: barber.serviceConfigs || [],
-        schedule: barber.schedule || [],
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-
-      const docRef = doc(db, COLLECTION_PATH, docId);
-      await setDoc(docRef, payload, { merge: true });
-
-      createdBarbers.push({
-        ...barber,
-        id: docId,
-        businessId,
-        active: barber.status === 'active',
-      });
-    }
-
-    console.info(`[Equipe Firestore] Auto-seed concluído com ${createdBarbers.length} profissionais gravados no Firestore.`);
-    return createdBarbers;
-  } catch (error) {
-    console.warn('[Equipe Firestore] Erro no auto-seed de profissionais:', error);
-    return MOCK_BARBERS;
-  }
+  console.info(`[Equipe Firestore] seedInitialProfessionalsIfEmpty desativado (V4_07) para businessId="${businessId}". Nenhum mock gravado.`);
+  return [];
 }
 
 /**
  * Busca todos os profissionais cadastrados para a barbearia no Firestore.
- * Em caso de ambiente de demonstração ou ausência de Firebase, retorna o fallback de demonstração.
+ * Se a coleção estiver vazia, retorna uma lista vazia sem inserir documentos.
  */
 export async function getFirestoreProfessionals(
   businessId = CANONICAL_BUSINESS_ID
@@ -127,8 +86,8 @@ export async function getFirestoreProfessionals(
   console.info(`[Equipe Firestore] getFirestoreProfessionals: consultando coleção "${COLLECTION_PATH}" para businessId="${businessId}" | isFirebaseConfigured=${isFirebaseConfigured}`);
 
   if (!isFirebaseConfigured || !db) {
-    console.warn('[Equipe Firestore] getFirestoreProfessionals: Firebase NÃO configurado (VITE_FIREBASE_API_KEY ausente). Retornando MOCK_BARBERS (Demo Mode).');
-    return MOCK_BARBERS;
+    console.warn('[Equipe Firestore] getFirestoreProfessionals: Firebase NÃO configurado (VITE_FIREBASE_API_KEY ausente). Retornando lista vazia.');
+    return [];
   }
 
   try {
@@ -141,9 +100,8 @@ export async function getFirestoreProfessionals(
     console.info(`[Equipe Firestore] getFirestoreProfessionals: consulta retornou ${snapshot.size} documento(s) do Firestore.`);
 
     if (snapshot.empty) {
-      // Se a coleção estiver vazia no Firestore real, popula com os profissionais padrão
-      console.info(`[Equipe Firestore] Coleção "${COLLECTION_PATH}" vazia para businessId="${businessId}". Populando auto-seed inicial...`);
-      return await seedInitialProfessionalsIfEmpty(businessId);
+      console.info(`[Equipe Firestore] Coleção "${COLLECTION_PATH}" vazia para businessId="${businessId}". Retornando lista vazia sem auto-seed.`);
+      return [];
     }
 
     const barbers: Barber[] = [];
@@ -161,7 +119,7 @@ export async function getFirestoreProfessionals(
     });
   } catch (error: any) {
     console.error('[Equipe Firestore] Erro ao consultar profissionais no Firestore:', error?.message || error);
-    return MOCK_BARBERS;
+    throw error;
   }
 }
 

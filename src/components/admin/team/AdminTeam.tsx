@@ -14,9 +14,10 @@ import {
   Eye,
   Calendar,
   Loader2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { Barber, AdminService } from '../../../types/admin';
-import { MOCK_BARBERS } from '../../../data/adminMockData';
 import {
   getFirestoreProfessionals,
   createFirestoreProfessional,
@@ -38,8 +39,9 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
   businessId = 'joao-barber',
   onRefreshServices,
 }) => {
-  const [barbers, setBarbers] = useState<Barber[]>(MOCK_BARBERS);
+  const [barbers, setBarbers] = useState<Barber[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -65,15 +67,19 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
     let isMounted = true;
     async function loadData() {
       setIsLoading(true);
+      setFetchError(null);
       try {
         const data = await getFirestoreProfessionals(businessId);
         if (isMounted) {
           setBarbers(data);
         }
-      } catch (err) {
-        console.warn('Utilizando profissionais locais/demo:', err);
+      } catch (err: any) {
+        console.error('[AdminTeam] Erro ao carregar profissionais do Firestore:', err);
         if (isMounted) {
-          setBarbers(MOCK_BARBERS);
+          setBarbers([]);
+          setFetchError(
+            err?.message || 'Falha ao consultar a equipe de profissionais no banco de dados.'
+          );
         }
       } finally {
         if (isMounted) {
@@ -86,6 +92,24 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
       isMounted = false;
     };
   }, [businessId]);
+
+  const handleRetryLoad = () => {
+    setIsLoading(true);
+    setFetchError(null);
+    getFirestoreProfessionals(businessId)
+      .then((data) => {
+        setBarbers(data);
+      })
+      .catch((err: any) => {
+        setBarbers([]);
+        setFetchError(
+          err?.message || 'Falha ao consultar a equipe de profissionais no banco de dados.'
+        );
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  };
 
   // Filtered barbers
   const filteredBarbers = barbers.filter((barber) => {
@@ -198,6 +222,24 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
+      {/* Fetch error notification with retry button */}
+      {fetchError && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-150">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{fetchError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetryLoad}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 font-semibold text-xs transition-colors cursor-pointer self-start sm:self-auto shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Tentar novamente</span>
+          </button>
+        </div>
+      )}
+
       {/* Action error notification if any operation fails */}
       {actionError && (
         <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in duration-150">
@@ -221,7 +263,7 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
             </h2>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700 flex items-center gap-1.5">
               {isLoading && <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />}
-              {barbers.length} profissionais
+              {isLoading ? 'Carregando...' : `${barbers.length} profissional(is)`}
             </span>
           </div>
           <p className="text-xs sm:text-sm text-zinc-400 mt-1">
@@ -292,19 +334,27 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
         </div>
       </div>
 
-      {/* Barbers Table / Cards */}
-      {filteredBarbers.length === 0 ? (
+      {/* Barbers Table / Cards / States */}
+      {isLoading ? (
+        <div className="text-center py-16 px-4 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 space-y-3">
+          <Loader2 className="w-8 h-8 animate-spin text-amber-500 mx-auto" />
+          <h3 className="text-sm font-bold text-white">Carregando profissionais...</h3>
+          <p className="text-xs text-zinc-400">Consultando a equipe cadastrada no Firestore</p>
+        </div>
+      ) : filteredBarbers.length === 0 ? (
         <div className="text-center py-12 px-4 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 mx-auto flex items-center justify-center text-zinc-500">
-            <Users className="w-6 h-6" />
+            {barbers.length === 0 ? <Users className="w-6 h-6" /> : <Search className="w-6 h-6" />}
           </div>
-          <h3 className="text-base font-bold text-white">Nenhum barbeiro encontrado</h3>
+          <h3 className="text-base font-bold text-white">
+            {barbers.length === 0 ? 'Nenhum profissional cadastrado' : 'Nenhum barbeiro encontrado'}
+          </h3>
           <p className="text-xs text-zinc-400 max-w-sm mx-auto">
-            {searchQuery
-              ? 'Nenhum profissional corresponde aos filtros de busca informados.'
-              : 'Cadastre o primeiro barbeiro para começar a gerenciar sua equipe.'}
+            {barbers.length === 0
+              ? 'Sua barbearia ainda não possui profissionais registrados no sistema. Cadastre o primeiro barbeiro para começar a gerenciar sua equipe.'
+              : 'Nenhum profissional corresponde aos filtros de busca informados.'}
           </p>
-          {!searchQuery && (
+          {barbers.length === 0 ? (
             <button
               type="button"
               onClick={() => {
@@ -315,6 +365,17 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
             >
               <UserPlus className="w-3.5 h-3.5" />
               Adicionar Primeiro Barbeiro
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setFilterStatus('all');
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-semibold hover:bg-zinc-700 transition-colors cursor-pointer"
+            >
+              Limpar Filtros
             </button>
           )}
         </div>
