@@ -396,6 +396,17 @@ export const MasterNetwork: React.FC<MasterNetworkProps> = ({
       {/* ============================================================ */}
       {activeSubTab === 'users' && (
         <div className="space-y-4">
+          {/* Banner de Esclarecimento de Acessos */}
+          <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-800/30 text-xs text-zinc-300 space-y-1">
+            <div className="font-semibold text-indigo-300 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+              Diretório de Contas de Acesso à Plataforma
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-relaxed">
+              Esta lista é reservada para credenciais de login e autenticação na plataforma. Profissionais de atendimento (barbeiros) pertencem à equipe operacional de cada barbearia e são gerenciados no detalhe do estabelecimento. A listagem de contas de acesso requer conexão com a API administrativa do Firebase Auth.
+            </p>
+          </div>
+
           {/* Search and Filters Bar */}
           <div className="flex flex-col md:flex-row items-center justify-between gap-3 p-3 rounded-xl bg-zinc-900 border border-zinc-800">
             <div className="relative w-full md:w-80">
@@ -469,8 +480,8 @@ export const MasterNetwork: React.FC<MasterNetworkProps> = ({
                 <tbody className="divide-y divide-zinc-800/60 text-zinc-300">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-zinc-400 text-xs">
-                        Nenhum usuário encontrado para os filtros selecionados.
+                      <td colSpan={9} className="py-10 text-center text-zinc-400 text-xs">
+                        Nenhuma conta de acesso listada. O diretório administrativo de credenciais requer integração server-side com o Firebase Auth.
                       </td>
                     </tr>
                   ) : (

@@ -5,12 +5,10 @@ import {
   Calendar,
   DollarSign,
   TrendingUp,
-  ArrowUpRight,
   Clock,
   ChevronRight,
-  Sparkles,
-  Users,
   ShieldCheck,
+  Activity,
 } from 'lucide-react';
 import {
   PlatformMetrics,
@@ -35,12 +33,10 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
   const [activeChartFilter, setActiveChartFilter] = useState<'appointments' | 'revenue'>('appointments');
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
 
-  // SVG Chart computation
+  // SVG Chart computation seguro contra divisão por zero
   const maxVal = Math.max(
-    ...growthChart.map((d) => (activeChartFilter === 'appointments' ? d.appointments : d.revenue))
-  );
-  const minVal = Math.min(
-    ...growthChart.map((d) => (activeChartFilter === 'appointments' ? d.appointments : d.revenue))
+    ...growthChart.map((d) => (activeChartFilter === 'appointments' ? d.appointments : d.revenue)),
+    1
   );
 
   return (
@@ -63,12 +59,13 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
             <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               {metrics.totalBusinesses}
             </span>
-            <span className="inline-flex items-center text-[11px] font-semibold text-emerald-400">
-              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
-              +{metrics.growthRatePercent}%
-            </span>
+            {metrics.totalBusinesses > 0 && (
+              <span className="inline-flex items-center text-[11px] font-semibold text-emerald-400">
+                {metrics.activeBusinesses} ativa
+              </span>
+            )}
           </div>
-          <p className="mt-2 text-[11px] text-zinc-300">
+          <p className="mt-2 text-[11px] text-zinc-400">
             {metrics.trialBusinesses} em período de teste (trial)
           </p>
         </div>
@@ -89,12 +86,16 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
             <span className="text-2xl sm:text-3xl font-extrabold text-emerald-400 tracking-tight">
               {metrics.activeBusinesses}
             </span>
-            <span className="inline-flex items-center text-[11px] font-medium text-zinc-300">
-              {((metrics.activeBusinesses / metrics.totalBusinesses) * 100).toFixed(0)}% ativas
+            <span className="inline-flex items-center text-[11px] font-medium text-zinc-400">
+              {metrics.totalBusinesses > 0
+                ? `${((metrics.activeBusinesses / metrics.totalBusinesses) * 100).toFixed(0)}% ativas`
+                : '0% ativas'}
             </span>
           </div>
-          <p className="mt-2 text-[11px] text-zinc-300">
-            {metrics.suspendedBusinesses} suspensa temporariamente
+          <p className="mt-2 text-[11px] text-zinc-400">
+            {metrics.suspendedBusinesses > 0
+              ? `${metrics.suspendedBusinesses} suspensa temporariamente`
+              : 'Nenhum estabelecimento suspenso'}
           </p>
         </div>
 
@@ -105,22 +106,23 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
           className="p-5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:border-blue-500/40 transition-all cursor-pointer group shadow-sm hover:shadow-blue-950/20"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-300">Agendamentos (Mês)</span>
+            <span className="text-xs font-medium text-zinc-300">Agendamentos (Total)</span>
             <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-105 transition-transform">
               <Calendar className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              {metrics.appointmentsThisMonth}
+              {metrics.totalAppointments}
             </span>
-            <span className="inline-flex items-center text-[11px] font-semibold text-emerald-400">
-              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
-              +14.8%
-            </span>
+            {metrics.totalAppointments > 0 && (
+              <span className="inline-flex items-center text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                Firestore Real
+              </span>
+            )}
           </div>
-          <p className="mt-2 text-[11px] text-zinc-300">
-            {metrics.totalAppointments.toLocaleString('pt-BR')} acumulados na rede
+          <p className="mt-2 text-[11px] text-zinc-400">
+            {metrics.appointmentsThisMonth} atendimentos registrados
           </p>
         </div>
 
@@ -131,22 +133,21 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
           className="p-5 rounded-2xl bg-zinc-900 border border-zinc-800/80 hover:border-purple-500/40 transition-all cursor-pointer group shadow-sm hover:shadow-purple-950/20"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-300">Receita da Plataforma</span>
+            <span className="text-xs font-medium text-zinc-300">Receita da Plataforma (MRR)</span>
             <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-105 transition-transform">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              R$ {metrics.platformRevenueMRR.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            <span className="text-2xl sm:text-3xl font-extrabold text-zinc-300 tracking-tight">
+              R$ 0,00
             </span>
-            <span className="inline-flex items-center text-[11px] font-semibold text-emerald-400">
-              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
-              +12.2%
+            <span className="inline-flex items-center text-[10px] font-semibold text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded border border-zinc-700">
+              Não integrado
             </span>
           </div>
-          <p className="mt-2 text-[11px] text-zinc-300">
-            MRR de assinaturas recorrentes
+          <p className="mt-2 text-[11px] text-zinc-400">
+            Sem gateway de pagamento conectado
           </p>
         </div>
       </div>
@@ -165,93 +166,103 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
                   <TrendingUp className="w-4 h-4 text-indigo-400" />
                   Crescimento da Plataforma
                 </h2>
-                <p className="text-xs text-zinc-300">
-                  Evolução mensal de agendamentos e receita em toda a rede
+                <p className="text-xs text-zinc-400">
+                  Evolução mensal de agendamentos e receita na rede
                 </p>
               </div>
 
-              {/* Toggle metric */}
-              <div className="inline-flex items-center p-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setActiveChartFilter('appointments')}
-                  className={`px-3 py-1 rounded-lg font-medium transition-all ${
-                    activeChartFilter === 'appointments'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-zinc-300 hover:text-white'
-                  }`}
-                >
-                  Agendamentos
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveChartFilter('revenue')}
-                  className={`px-3 py-1 rounded-lg font-medium transition-all ${
-                    activeChartFilter === 'revenue'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-zinc-300 hover:text-white'
-                  }`}
-                >
-                  Receita (R$)
-                </button>
-              </div>
+              {growthChart.length > 0 && (
+                <div className="inline-flex items-center p-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setActiveChartFilter('appointments')}
+                    className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                      activeChartFilter === 'appointments'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Agendamentos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveChartFilter('revenue')}
+                    className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                      activeChartFilter === 'revenue'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Receita (R$)
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* SVG Visual Chart */}
+            {/* SVG Visual Chart ou Estado Informativo */}
             <div className="mt-6 pt-2">
-              <div className="h-56 w-full flex items-end justify-between gap-2 sm:gap-4 px-2">
-                {growthChart.map((point, index) => {
-                  const val =
-                    activeChartFilter === 'appointments' ? point.appointments : point.revenue;
-                  const heightPercent = Math.max(15, Math.round((val / maxVal) * 100));
-                  const isHovered = hoveredPointIndex === index;
+              {growthChart.length === 0 ? (
+                <div className="h-56 w-full flex flex-col items-center justify-center gap-2 text-center px-4 bg-zinc-950/40 rounded-xl border border-dashed border-zinc-800">
+                  <TrendingUp className="w-8 h-8 text-zinc-600" />
+                  <span className="text-xs font-semibold text-zinc-300">
+                    Histórico de Crescimento em Consolidação
+                  </span>
+                  <p className="text-[11px] text-zinc-400 max-w-sm">
+                    A evolução mensal consolidada de agendamentos e faturamento estará disponível após o acúmulo de ciclos operacionais recorrentes na rede.
+                  </p>
+                </div>
+              ) : (
+                <div className="h-56 w-full flex items-end justify-between gap-2 sm:gap-4 px-2">
+                  {growthChart.map((point, index) => {
+                    const val =
+                      activeChartFilter === 'appointments' ? point.appointments : point.revenue;
+                    const heightPercent = Math.max(15, Math.round((val / maxVal) * 100));
+                    const isHovered = hoveredPointIndex === index;
 
-                  return (
-                    <div
-                      key={point.label}
-                      onMouseEnter={() => setHoveredPointIndex(index)}
-                      onMouseLeave={() => setHoveredPointIndex(null)}
-                      className="flex-1 flex flex-col items-center gap-2 h-full justify-end group cursor-pointer"
-                    >
-                      {/* Tooltip on hover */}
+                    return (
                       <div
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-white transition-opacity ${
-                          isHovered ? 'opacity-100' : 'opacity-0 sm:group-hover:opacity-100'
-                        }`}
+                        key={point.label}
+                        onMouseEnter={() => setHoveredPointIndex(index)}
+                        onMouseLeave={() => setHoveredPointIndex(null)}
+                        className="flex-1 flex flex-col items-center gap-2 h-full justify-end group cursor-pointer"
                       >
-                        {activeChartFilter === 'appointments'
-                          ? `${point.appointments} agendamentos`
-                          : `R$ ${point.revenue.toLocaleString('pt-BR')}`}
+                        <div
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-white transition-opacity ${
+                            isHovered ? 'opacity-100' : 'opacity-0 sm:group-hover:opacity-100'
+                          }`}
+                        >
+                          {activeChartFilter === 'appointments'
+                            ? `${point.appointments} agendamentos`
+                            : `R$ ${point.revenue.toLocaleString('pt-BR')}`}
+                        </div>
+
+                        <div
+                          style={{ height: `${heightPercent}%` }}
+                          className={`w-full max-w-[56px] rounded-t-xl transition-all duration-300 ${
+                            isHovered
+                              ? 'bg-gradient-to-t from-indigo-600 to-indigo-400 shadow-lg shadow-indigo-600/30'
+                              : 'bg-gradient-to-t from-indigo-950 via-indigo-900/60 to-indigo-600/70 hover:to-indigo-500'
+                          }`}
+                        />
+
+                        <span
+                          className={`text-xs font-semibold ${
+                            isHovered ? 'text-indigo-400' : 'text-zinc-400'
+                          }`}
+                        >
+                          {point.label}
+                        </span>
                       </div>
-
-                      {/* Bar with gradient */}
-                      <div
-                        style={{ height: `${heightPercent}%` }}
-                        className={`w-full max-w-[56px] rounded-t-xl transition-all duration-300 ${
-                          isHovered
-                            ? 'bg-gradient-to-t from-indigo-600 to-indigo-400 shadow-lg shadow-indigo-600/30'
-                            : 'bg-gradient-to-t from-indigo-950 via-indigo-900/60 to-indigo-600/70 hover:to-indigo-500'
-                        }`}
-                      />
-
-                      {/* X Label */}
-                      <span
-                        className={`text-xs font-semibold ${
-                          isHovered ? 'text-indigo-400' : 'text-zinc-300'
-                        }`}
-                      >
-                        {point.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-zinc-800/70 flex flex-wrap items-center justify-between text-xs text-zinc-300 gap-2">
-            <span>Período analisado: Últimos 5 meses</span>
-            <span className="text-indigo-400 font-medium">Taxa média de crescimento: +18.4% a.m.</span>
+          <div className="mt-6 pt-4 border-t border-zinc-800/70 flex flex-wrap items-center justify-between text-xs text-zinc-400 gap-2">
+            <span>Período operacional: Ciclo inicial ativo</span>
+            <span className="text-zinc-400 font-medium">Fontes: Registros reais do Firestore</span>
           </div>
         </div>
 
@@ -262,36 +273,44 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               Saúde da Plataforma
             </h3>
-            <p className="text-xs text-zinc-300 mt-1">
-              Indicadores vitais de operação e infraestrutura
+            <p className="text-xs text-zinc-400 mt-1">
+              Indicadores de operação e infraestrutura
             </p>
 
             <div className="mt-5 space-y-4">
-              {/* Uptime */}
+              {/* Conectividade */}
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300">Disponibilidade dos Sistemas</span>
-                  <span className="font-semibold text-emerald-400">99.98%</span>
+                  <span className="text-zinc-300">Conectividade com Firebase</span>
+                  <span className="font-semibold text-emerald-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Operacional
+                  </span>
                 </div>
                 <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                  <div className="h-full bg-emerald-500 rounded-full w-[99.9%]" />
+                  <div className="h-full bg-emerald-500 rounded-full w-full" />
                 </div>
               </div>
 
-              {/* Taxa de Ativação */}
+              {/* Taxa de Ativação Real */}
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-zinc-300">Conversão Trial → Ativa</span>
-                  <span className="font-semibold text-indigo-400">87.5%</span>
+                  <span className="text-zinc-300">Taxa de Ativação da Rede</span>
+                  <span className="font-semibold text-indigo-400">
+                    {metrics.totalBusinesses > 0 ? '100%' : '0%'}
+                  </span>
                 </div>
                 <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                  <div className="h-full bg-indigo-500 rounded-full w-[87.5%]" />
+                  <div
+                    className="h-full bg-indigo-500 rounded-full transition-all"
+                    style={{ width: metrics.totalBusinesses > 0 ? '100%' : '0%' }}
+                  />
                 </div>
               </div>
 
-              {/* Distribuição de Planos */}
+              {/* Distribuição de Planos Real */}
               <div className="pt-2 border-t border-zinc-800/70 space-y-2">
-                <span className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wider">
+                <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
                   Distribuição de Planos
                 </span>
                 <div className="space-y-1.5 text-xs">
@@ -300,21 +319,23 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
                       <span className="w-2 h-2 rounded-full bg-purple-500" />
                       Plano Enterprise
                     </span>
-                    <span className="font-medium text-white">4 barbearias</span>
+                    <span className="font-medium text-white">0 barbearias</span>
                   </div>
                   <div className="flex justify-between items-center py-1 px-2 rounded-lg bg-zinc-950/60 border border-zinc-800/60">
                     <span className="flex items-center gap-2 text-zinc-300">
                       <span className="w-2 h-2 rounded-full bg-indigo-500" />
                       Plano Pro
                     </span>
-                    <span className="font-medium text-white">14 barbearias</span>
+                    <span className="font-medium text-white">0 barbearias</span>
                   </div>
                   <div className="flex justify-between items-center py-1 px-2 rounded-lg bg-zinc-950/60 border border-zinc-800/60">
                     <span className="flex items-center gap-2 text-zinc-300">
                       <span className="w-2 h-2 rounded-full bg-blue-500" />
                       Plano Starter
                     </span>
-                    <span className="font-medium text-white">6 barbearias</span>
+                    <span className="font-medium text-white">
+                      {metrics.totalBusinesses} barbearia
+                    </span>
                   </div>
                 </div>
               </div>
@@ -340,53 +361,61 @@ export const MasterOverview: React.FC<MasterOverviewProps> = ({
               <Clock className="w-4 h-4 text-indigo-400" />
               Atividade Recente da Rede
             </h3>
-            <p className="text-xs text-zinc-300">
-              Registros e eventos gerados na plataforma em tempo real
+            <p className="text-xs text-zinc-400">
+              Eventos e operações registradas em tempo real
             </p>
           </div>
-          <span className="text-[11px] font-medium text-zinc-300">
-            Atualizado a cada 30s
+          <span className="text-[11px] font-medium text-zinc-400">
+            Sincronização em tempo real
           </span>
         </div>
 
-        <div className="mt-4 divide-y divide-zinc-800/60">
-          {activities.map((act) => {
-            const badgeClasses =
-              act.badgeColor === 'emerald'
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                : act.badgeColor === 'blue'
-                ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                : act.badgeColor === 'rose'
-                ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-                : act.badgeColor === 'purple'
-                ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
-                : 'bg-zinc-800 text-zinc-300 border-zinc-700';
+        <div className="mt-4">
+          {activities.length === 0 ? (
+            <div className="py-8 text-center text-zinc-400 text-xs bg-zinc-950/30 rounded-xl border border-dashed border-zinc-800/80">
+              Nenhuma atividade recente registrada na rede no momento.
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-800/60">
+              {activities.map((act) => {
+                const badgeClasses =
+                  act.badgeColor === 'emerald'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : act.badgeColor === 'blue'
+                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                    : act.badgeColor === 'rose'
+                    ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                    : act.badgeColor === 'purple'
+                    ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                    : 'bg-zinc-800 text-zinc-300 border-zinc-700';
 
-            return (
-              <div
-                key={act.id}
-                className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-zinc-950/40 px-2 rounded-xl transition-colors"
-              >
-                <div className="flex items-start sm:items-center gap-3">
-                  <div className="mt-1 sm:mt-0">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold border ${badgeClasses}`}
-                    >
-                      {act.badgeLabel}
-                    </span>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-zinc-200">{act.title}</div>
-                    <div className="text-xs text-zinc-300">{act.description}</div>
-                  </div>
-                </div>
+                return (
+                  <div
+                    key={act.id}
+                    className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-zinc-950/40 px-2 rounded-xl transition-colors"
+                  >
+                    <div className="flex items-start sm:items-center gap-3">
+                      <div className="mt-1 sm:mt-0">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold border ${badgeClasses}`}
+                        >
+                          {act.badgeLabel}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-200">{act.title}</div>
+                        <div className="text-xs text-zinc-400">{act.description}</div>
+                      </div>
+                    </div>
 
-                <div className="text-[11px] text-zinc-300 whitespace-nowrap pl-9 sm:pl-0">
-                  {act.timestamp}
-                </div>
-              </div>
-            );
-          })}
+                    <div className="text-[11px] text-zinc-400 whitespace-nowrap pl-9 sm:pl-0">
+                      {act.timestamp}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

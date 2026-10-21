@@ -5,11 +5,7 @@ import {
   AlertCircle,
   Clock,
   DollarSign,
-  TrendingUp,
   Search,
-  ExternalLink,
-  ShieldCheck,
-  Zap,
 } from 'lucide-react';
 import { MasterSubscription, SubscriptionStatus } from '../../types/master';
 
@@ -21,7 +17,7 @@ export const MasterSubscriptions: React.FC<MasterSubscriptionsProps> = ({ subscr
   const [statusFilter, setStatusFilter] = useState<'all' | SubscriptionStatus>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Aggregated KPI counts
+  // Aggregated KPI counts baseados nos dados reais recebidos
   const totalCount = subscriptions.length;
   const activeCount = subscriptions.filter((s) => s.status === 'active').length;
   const trialCount = subscriptions.filter((s) => s.status === 'trial').length;
@@ -55,6 +51,17 @@ export const MasterSubscriptions: React.FC<MasterSubscriptionsProps> = ({ subscr
         </p>
       </div>
 
+      {/* Banner de Aviso de Gateway */}
+      <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 space-y-1">
+        <div className="font-semibold flex items-center gap-1.5 text-amber-200">
+          <AlertCircle className="w-4 h-4 text-amber-400" />
+          Integração de faturamento ainda não configurada
+        </div>
+        <p className="text-[11px] text-amber-300/80 leading-relaxed">
+          O processamento automático de mensalidades e conciliação bancária da plataforma requer a conexão com um provedor de pagamentos (Stripe, Asaas ou Mercado Pago). Nenhum dado bancário fictício é exibido.
+        </p>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
         {/* Total Assinaturas */}
@@ -75,14 +82,14 @@ export const MasterSubscriptions: React.FC<MasterSubscriptionsProps> = ({ subscr
         <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800/80">
           <span className="text-xs font-medium text-zinc-400">Em Trial (Testes)</span>
           <div className="mt-2 text-2xl font-extrabold text-blue-400">{trialCount}</div>
-          <p className="mt-1 text-[11px] text-blue-400/80">14 dias gratuitos</p>
+          <p className="mt-1 text-[11px] text-blue-400/80">Período de avaliação</p>
         </div>
 
         {/* Canceladas */}
         <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800/80">
           <span className="text-xs font-medium text-zinc-400">Canceladas / Suspensas</span>
           <div className="mt-2 text-2xl font-extrabold text-rose-400">{cancelledCount}</div>
-          <p className="mt-1 text-[11px] text-rose-400/80">Churn de 4.1%</p>
+          <p className="mt-1 text-[11px] text-zinc-500">Histórico de saídas</p>
         </div>
 
         {/* MRR Consolidado */}
@@ -91,7 +98,7 @@ export const MasterSubscriptions: React.FC<MasterSubscriptionsProps> = ({ subscr
           <div className="mt-2 text-2xl font-extrabold text-white">
             R$ {totalMRR.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </div>
-          <p className="mt-1 text-[11px] text-indigo-400">Previsão próximo ciclo</p>
+          <p className="mt-1 text-[11px] text-indigo-400">Sem gateway conectado</p>
         </div>
       </div>
 
@@ -153,90 +160,49 @@ export const MasterSubscriptions: React.FC<MasterSubscriptionsProps> = ({ subscr
               {filteredSubscriptions.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-zinc-400">
-                    Nenhuma assinatura encontrada com os critérios informados.
+                    Nenhuma assinatura ativa encontrada. O faturamento da plataforma será ativado após integração com gateway de pagamento.
                   </td>
                 </tr>
               ) : (
-                filteredSubscriptions.map((sub) => {
-                  return (
-                    <tr
-                      key={sub.id}
-                      className="hover:bg-zinc-950/40 transition-colors"
-                    >
-                      {/* Barbearia */}
-                      <td className="py-3.5 px-4 sm:px-6 font-semibold text-white">
-                        <div>{sub.businessName}</div>
-                        <div className="text-[10px] text-zinc-500 font-mono">{sub.id}</div>
-                      </td>
-
-                      {/* Plano */}
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                            sub.plan === 'enterprise'
-                              ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-                              : sub.plan === 'pro'
-                              ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
-                              : 'bg-zinc-800 text-zinc-300 border-zinc-700'
-                          }`}
-                        >
-                          {sub.plan}
-                        </span>
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-3.5 px-4">
-                        {sub.status === 'active' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Ativa
-                          </span>
-                        ) : sub.status === 'trial' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                            <Clock className="w-3 h-3" />
-                            Trial
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                            <AlertCircle className="w-3 h-3" />
-                            Cancelada
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Valor */}
-                      <td className="py-3.5 px-4 font-semibold text-white">
-                        {sub.amount > 0 ? `R$ ${sub.amount.toFixed(2)}/mês` : 'R$ 0,00 (Trial)'}
-                      </td>
-
-                      {/* Início */}
-                      <td className="py-3.5 px-4 text-zinc-400 text-[11px]">
-                        {sub.createdAt}
-                      </td>
-
-                      {/* Próxima cobrança */}
-                      <td className="py-3.5 px-4 text-zinc-300 font-medium text-[11px]">
-                        {sub.nextBillingAt}
-                      </td>
-
-                      {/* Método */}
-                      <td className="py-3.5 px-4 sm:px-6 text-right text-zinc-400 text-[11px]">
-                        {sub.paymentMethod}
-                      </td>
-                    </tr>
-                  );
-                })
+                filteredSubscriptions.map((sub) => (
+                  <tr key={sub.id} className="hover:bg-zinc-950/40 transition-colors">
+                    <td className="py-3.5 px-4 sm:px-6 font-semibold text-white">
+                      <div>{sub.businessName}</div>
+                      <div className="text-[10px] text-zinc-500 font-mono">{sub.id}</div>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-zinc-800 text-zinc-300 border-zinc-700">
+                        {sub.plan}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700">
+                        {sub.status}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 font-semibold text-white">
+                      R$ {sub.amount.toFixed(2)}
+                    </td>
+                    <td className="py-3.5 px-4 text-zinc-400 text-[11px]">
+                      {sub.createdAt}
+                    </td>
+                    <td className="py-3.5 px-4 text-zinc-300 font-medium text-[11px]">
+                      {sub.nextBillingAt}
+                    </td>
+                    <td className="py-3.5 px-4 sm:px-6 text-right text-zinc-400 text-[11px]">
+                      {sub.paymentMethod}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
 
         <div className="p-4 border-t border-zinc-800 bg-zinc-950/40 flex items-center justify-between text-xs text-zinc-400">
-          <span>
-            {filteredSubscriptions.length} assinaturas registradas
-          </span>
+          <span>{filteredSubscriptions.length} assinaturas registradas</span>
           <span className="text-[11px] text-zinc-500">
-            Módulo preparado para Stripe Billing &amp; Webhooks
+            Aguardando integração com gateway de pagamento
           </span>
         </div>
       </div>

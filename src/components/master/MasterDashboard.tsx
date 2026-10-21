@@ -129,6 +129,8 @@ export const MasterDashboard: React.FC<MasterDashboardProps> = ({
         onLogoutClick={() => setIsLogoutModalOpen(true)}
         onNavigateHome={onNavigateHome}
         onNavigateAdmin={onNavigateAdmin}
+        businessesCount={businesses.length}
+        appointmentsCount={appointments.length > 0 ? appointments.length : (metrics?.totalAppointments || 0)}
       />
 
       {/* 2. Main Content Wrapper */}

@@ -76,16 +76,39 @@ export const MasterAppointments: React.FC<MasterAppointmentsProps> = ({
 
       const matchesStatus = statusFilter === 'all' || apt.status === statusFilter;
 
-      // Period filtering (simulated mock dates: current mock is 17/09/2026)
+      // Filtragem dinâmica de período para agendamentos reais
       let matchesPeriod = true;
-      if (periodFilter === 'today') {
-        matchesPeriod = apt.date === '17/09/2026';
-      } else if (periodFilter === '7days') {
-        matchesPeriod =
-          apt.date.includes('09/2026') &&
-          parseInt(apt.date.split('/')[0], 10) >= 10;
-      } else if (periodFilter === '30days') {
-        matchesPeriod = apt.date.includes('09/2026');
+      if (periodFilter !== 'all' && apt.date) {
+        let aptDateObj: Date | null = null;
+        if (apt.date.includes('-')) {
+          const parts = apt.date.split('-').map(Number);
+          if (parts.length === 3) {
+            aptDateObj = new Date(parts[0], parts[1] - 1, parts[2]);
+          }
+        } else if (apt.date.includes('/')) {
+          const parts = apt.date.split('/').map(Number);
+          if (parts.length === 3) {
+            aptDateObj = new Date(parts[2], parts[1] - 1, parts[0]);
+          }
+        }
+
+        if (aptDateObj && !isNaN(aptDateObj.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const target = new Date(aptDateObj);
+          target.setHours(0, 0, 0, 0);
+
+          const diffTime = today.getTime() - target.getTime();
+          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+          if (periodFilter === 'today') {
+            matchesPeriod = diffDays === 0;
+          } else if (periodFilter === '7days') {
+            matchesPeriod = Math.abs(diffDays) <= 7;
+          } else if (periodFilter === '30days') {
+            matchesPeriod = Math.abs(diffDays) <= 30;
+          }
+        }
       }
 
       return matchesSearch && matchesBusiness && matchesStatus && matchesPeriod;
@@ -227,7 +250,7 @@ export const MasterAppointments: React.FC<MasterAppointmentsProps> = ({
                 className="px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-200 focus:outline-hidden focus:border-indigo-500"
               >
                 <option value="all">Todo o histórico</option>
-                <option value="today">Hoje (17/09)</option>
+                <option value="today">Hoje</option>
                 <option value="7days">Últimos 7 dias</option>
                 <option value="30days">Últimos 30 dias</option>
               </select>
@@ -279,8 +302,8 @@ export const MasterAppointments: React.FC<MasterAppointmentsProps> = ({
             <tbody className="divide-y divide-zinc-800/60 text-zinc-300">
               {filteredAppointments.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-zinc-300 text-xs">
-                    Nenhum agendamento encontrado para os filtros selecionados.
+                  <td colSpan={7} className="py-12 text-center text-zinc-400 text-xs">
+                    Nenhum agendamento encontrado no Firestore para os filtros selecionados.
                   </td>
                 </tr>
               ) : (

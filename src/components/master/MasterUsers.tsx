@@ -58,6 +58,17 @@ export const MasterUsers: React.FC<MasterUsersProps> = ({ users }) => {
         </div>
       </div>
 
+      {/* Banner de Esclarecimento */}
+      <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-800/30 text-xs text-zinc-300 space-y-1">
+        <div className="font-semibold text-indigo-300 flex items-center gap-1.5">
+          <ShieldCheck className="w-4 h-4 text-indigo-400" />
+          Diretório de Contas de Acesso à Plataforma
+        </div>
+        <p className="text-[11px] text-zinc-400 leading-relaxed">
+          Esta área lista contas de acesso e login do Firebase Auth. Barbeiros e profissionais de atendimento pertencem à equipe operacional de cada barbearia e são gerenciados no detalhe do estabelecimento.
+        </p>
+      </div>
+
       {/* Search & Filters */}
       <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         {/* Search */}

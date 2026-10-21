@@ -25,19 +25,20 @@ interface MasterSidebarProps {
   onLogoutClick: () => void;
   onNavigateHome: () => void;
   onNavigateAdmin: () => void;
+  businessesCount?: number;
+  appointmentsCount?: number;
 }
 
 interface MenuItem {
   id: MasterTab;
   label: string;
   icon: React.ElementType;
-  badge?: string;
 }
 
 const MENU_ITEMS: MenuItem[] = [
   { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'network', label: 'Gestão da Rede', icon: Network, badge: '24' },
-  { id: 'appointments', label: 'Agendamentos', icon: Calendar, badge: '482' },
+  { id: 'network', label: 'Gestão da Rede', icon: Network },
+  { id: 'appointments', label: 'Agendamentos', icon: Calendar },
   { id: 'subscriptions', label: 'Assinaturas', icon: CreditCard },
   { id: 'reports', label: 'Relatórios', icon: BarChart3 },
   { id: 'settings', label: 'Configurações', icon: Settings },
@@ -51,6 +52,8 @@ export const MasterSidebar: React.FC<MasterSidebarProps> = ({
   onLogoutClick,
   onNavigateHome,
   onNavigateAdmin,
+  businessesCount,
+  appointmentsCount,
 }) => {
   return (
     <>
@@ -112,6 +115,13 @@ export const MasterSidebar: React.FC<MasterSidebarProps> = ({
             const isActive =
               activeTab === item.id ||
               (item.id === 'network' && (activeTab === 'businesses' || activeTab === 'users'));
+            const dynamicBadge =
+              item.id === 'network' && businessesCount !== undefined && businessesCount > 0
+                ? String(businessesCount)
+                : item.id === 'appointments' && appointmentsCount !== undefined && appointmentsCount > 0
+                ? String(appointmentsCount)
+                : undefined;
+
             return (
               <button
                 key={item.id}
@@ -131,7 +141,7 @@ export const MasterSidebar: React.FC<MasterSidebarProps> = ({
                   <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
                   <span>{item.label}</span>
                 </div>
-                {item.badge && (
+                {dynamicBadge && (
                   <span
                     className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
                       isActive
@@ -139,7 +149,7 @@ export const MasterSidebar: React.FC<MasterSidebarProps> = ({
                         : 'bg-zinc-800 text-zinc-400 border border-zinc-700/50'
                     }`}
                   >
-                    {item.badge}
+                    {dynamicBadge}
                   </span>
                 )}
               </button>

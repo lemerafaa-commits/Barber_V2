@@ -378,72 +378,34 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
-                  <span className="text-zinc-300 block text-[11px]">Plano Contratado</span>
+                  <span className="text-zinc-300 block text-[11px]">Plano Configurado</span>
                   <span className="text-sm font-bold text-white uppercase mt-1 block">
-                    {business.plan}
+                    {business.plan || 'starter'}
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
                   <span className="text-zinc-300 block text-[11px]">Status da Assinatura</span>
-                  <span className="text-sm font-semibold text-emerald-400 mt-1 block">
-                    {business.status === 'active'
-                      ? 'Adimplente / Ativa'
-                      : business.status === 'trial'
-                      ? 'Período Gratuito'
-                      : business.status === 'cancelled'
-                      ? 'Encerrada'
-                      : 'Suspensa'}
+                  <span className="text-sm font-semibold text-zinc-400 mt-1 block">
+                    Não integrado
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
                   <span className="text-zinc-300 block text-[11px]">Valor da Mensalidade</span>
-                  <span className="text-sm font-extrabold text-white mt-1 block">
-                    {business.monthlyRevenue > 0
-                      ? `R$ ${business.monthlyRevenue.toFixed(2)}`
-                      : 'R$ 0,00'}
+                  <span className="text-sm font-extrabold text-zinc-300 mt-1 block">
+                    R$ 0,00
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
-                  <span className="text-zinc-300 block text-[11px]">Próxima Cobrança / Renovação</span>
-                  <span className="text-xs font-medium text-zinc-200 mt-1 block">
-                    {business.status === 'trial'
-                      ? '15 dias após adesão'
-                      : business.status === 'cancelled'
-                      ? 'Sem cobrança futura'
-                      : 'Dia 10 do próximo mês'}
+                  <span className="text-zinc-300 block text-[11px]">Próxima Cobrança</span>
+                  <span className="text-xs font-medium text-zinc-400 mt-1 block">
+                    Não configurada (Sem gateway)
                   </span>
                 </div>
               </div>
 
-              {/* Informações detalhadas de Churn se cancelada */}
-              {business.status === 'cancelled' && (
-                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-2 text-xs">
-                  <div className="font-bold text-rose-300 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    <span>Detalhes de Cancelamento (Saída da Base)</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-zinc-300">
-                    <div>
-                      <span className="text-zinc-300 text-[11px] block">Data de Cancelamento:</span>
-                      <strong className="text-white">{business.cancelledAt || '28/08/2026'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-zinc-300 text-[11px] block">Plano Anterior:</span>
-                      <strong className="text-white uppercase">{business.previousPlan || business.plan}</strong>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <span className="text-zinc-300 text-[11px] block">Motivo Informado:</span>
-                      <p className="text-zinc-200 mt-0.5">{business.cancelReason || 'Encerramento de ponto comercial'}</p>
-                    </div>
-                    {business.cancelFeedback && (
-                      <div className="sm:col-span-2">
-                        <span className="text-zinc-300 text-[11px] block">Feedback do Cliente:</span>
-                        <p className="text-zinc-300 italic mt-0.5">"{business.cancelFeedback}"</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 text-xs text-zinc-400">
+                O módulo de faturamento recorrente (SaaS Subscriptions) está aguardando a integração com provedor de pagamento (Stripe/Asaas) para processar cobranças.
+              </div>
             </section>
           )}
 
@@ -469,15 +431,13 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
                 <div className="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800">
                   <span className="text-zinc-300 block text-[11px]">Agendamentos Cancelados</span>
                   <div className="text-2xl font-black text-rose-400 mt-1">
-                    {business.cancellationsCount ?? Math.floor(business.appointmentCount * 0.05)}
+                    {business.cancellationsCount || 0}
                   </div>
                   <span className="text-[10px] text-zinc-300">
-                    Taxa média:{' '}
-                    {(
-                      ((business.cancellationsCount ?? Math.floor(business.appointmentCount * 0.05)) /
-                        Math.max(1, business.appointmentCount)) *
-                      100
-                    ).toFixed(1)}
+                    Taxa real:{' '}
+                    {business.appointmentCount > 0
+                      ? (((business.cancellationsCount || 0) / business.appointmentCount) * 100).toFixed(1)
+                      : '0.0'}
                     %
                   </span>
                 </div>

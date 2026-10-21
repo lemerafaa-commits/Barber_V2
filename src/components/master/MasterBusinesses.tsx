@@ -331,25 +331,18 @@ export const MasterBusinesses: React.FC<MasterBusinessesProps> = ({ businesses }
               </div>
             </div>
 
+            <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/20 text-[11px] text-zinc-300">
+              <span className="font-semibold text-indigo-300 block mb-1">Provisionamento Multi-Tenant</span>
+              O cadastro de novas barbearias requer a criação segura do documento de tenant no Firestore e concessão de claims de acesso. Esse recurso será ativado no próximo ciclo de provisionamento.
+            </div>
+
             <div className="pt-3 border-t border-zinc-800 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setIsNewBusinessModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700"
               >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(
-                    'Demonstração visual: Em fases futuras, esta ação criará o Tenant no Firestore e o usuário no Firebase Auth.'
-                  );
-                  setIsNewBusinessModalOpen(false);
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500"
-              >
-                Criar Barbearia
+                Fechar
               </button>
             </div>
           </div>
@@ -358,3 +351,4 @@ export const MasterBusinesses: React.FC<MasterBusinessesProps> = ({ businesses }
     </div>
   );
 };
+export default MasterBusinesses;

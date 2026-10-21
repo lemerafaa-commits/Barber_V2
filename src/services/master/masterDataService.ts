@@ -1,15 +1,4 @@
 import {
-  MOCK_MASTER_BUSINESSES,
-  MOCK_MASTER_USERS,
-  MOCK_MASTER_APPOINTMENTS,
-  MOCK_MASTER_SUBSCRIPTIONS,
-  MOCK_MASTER_ACTIVITIES,
-  MOCK_PLATFORM_METRICS,
-  MOCK_RETENTION_METRICS,
-  MOCK_MONTHLY_COHORTS,
-  MOCK_GROWTH_CHART,
-} from '../../data/masterMockData';
-import {
   MasterBusiness,
   MasterUser,
   MasterAppointment,
@@ -26,8 +15,8 @@ import {
 } from '../../types/master';
 import { auth, isFirebaseConfigured } from '../firebase/config';
 
-// In-memory state clone for local session reactivity
-let localAppointments: MasterAppointment[] = [...MOCK_MASTER_APPOINTMENTS];
+// In-memory state for local session reactivity on real appointments
+let localAppointments: MasterAppointment[] = [];
 
 export interface MasterApiSyncState {
   status: 'idle' | 'loading' | 'success' | 'error';
@@ -40,13 +29,16 @@ export interface MasterApiSyncState {
 /**
  * Master Data Service
  *
- * Camada de abstração para consultas de dados do Master Dashboard.
- * No Passo 2B, integra-se de forma segura à API real /api/master/joao-barber
- * enriquecendo o negócio canônico 'joao-barber' com dados vivos do Firestore,
- * mantendo diagnóstico explícito de falhas e compatibilidade com o ambiente.
+ * Camada de serviço de dados do Master Dashboard.
+ * Na V4_06 / Limpeza do Master:
+ * - Conecta exclusivamente às fontes reais existentes (API server-side do Firestore).
+ * - Elimina fallbacks automáticos para listas ou dados demonstrativos.
+ * - Trata de forma transparente estados sem gateway de pagamento e ausência de múltiplos tenants.
  */
 export class MasterDataService {
   private syncState: MasterApiSyncState = { status: 'idle' };
+  private cachedRealData: MasterJoaoBarberRealResponse | null = null;
+  private lastFetchTime = 0;
 
   getSyncState(): MasterApiSyncState {
     return { ...this.syncState };
@@ -55,15 +47,20 @@ export class MasterDataService {
   /**
    * Consulta a API segura server-side GET /api/master/joao-barber
    * enviando o Bearer ID Token do usuário Master autenticado.
+   * Utiliza cache curto em memória (10s) para evitar múltiplas requisições paralelas desnecessárias.
    */
-  async getJoaoBarberRealData(): Promise<MasterJoaoBarberRealResponse | null> {
+  async getJoaoBarberRealData(forceRefresh = false): Promise<MasterJoaoBarberRealResponse | null> {
+    const now = Date.now();
+    if (!forceRefresh && this.cachedRealData && now - this.lastFetchTime < 10000) {
+      return this.cachedRealData;
+    }
+
     if (!isFirebaseConfigured || !auth || !auth.currentUser) {
       this.syncState = {
         status: 'error',
         errorMessage: 'Firebase não configurado ou usuário Master não autenticado no cliente.',
         lastAttemptAt: new Date().toISOString(),
       };
-      console.warn('[MasterDataService] ' + this.syncState.errorMessage);
       return null;
     }
 
@@ -105,6 +102,9 @@ export class MasterDataService {
 
       const data: MasterJoaoBarberRealResponse = await response.json();
 
+      this.cachedRealData = data;
+      this.lastFetchTime = Date.now();
+
       this.syncState = {
         status: 'success',
         statusCode: 200,
@@ -112,10 +112,6 @@ export class MasterDataService {
         responseSummary: data.summary,
       };
 
-      console.info(
-        '[MasterDataService] Sincronização real com Firestore joao-barber bem-sucedida:',
-        data.summary
-      );
       return data;
     } catch (err: any) {
       const errorMsg = err?.message || 'Falha de rede ou conexão com /api/master/joao-barber';
@@ -130,65 +126,103 @@ export class MasterDataService {
   }
 
   async getPlatformMetrics(): Promise<PlatformMetrics> {
-    return Promise.resolve({ ...MOCK_PLATFORM_METRICS });
+    const realData = await this.getJoaoBarberRealData();
+
+    if (realData && realData.success && realData.summary) {
+      const totalAppointments = realData.summary.totalAppointments || 0;
+      const revenue = realData.summary.calculatedRevenue || 0;
+      const avgTicket = totalAppointments > 0 ? revenue / totalAppointments : 0.0;
+
+      return {
+        totalBusinesses: 1,
+        activeBusinesses: 1,
+        trialBusinesses: 0,
+        suspendedBusinesses: 0,
+        totalAppointments,
+        appointmentsThisMonth: totalAppointments,
+        platformRevenueMRR: 0.0, // R$ 0,00 real: faturamento SaaS não possui gateway integrado nesta etapa
+        totalPlatformUsers: 0,
+        averageTicket: Number(avgTicket.toFixed(2)),
+        growthRatePercent: 0.0,
+      };
+    }
+
+    // Se a consulta falhar ou não houver dados, retorna métricas neutras zeradas
+    return {
+      totalBusinesses: 0,
+      activeBusinesses: 0,
+      trialBusinesses: 0,
+      suspendedBusinesses: 0,
+      totalAppointments: 0,
+      appointmentsThisMonth: 0,
+      platformRevenueMRR: 0.0,
+      totalPlatformUsers: 0,
+      averageTicket: 0.0,
+      growthRatePercent: 0.0,
+    };
   }
 
   async getRetentionMetrics(): Promise<RetentionMetrics> {
-    return Promise.resolve({ ...MOCK_RETENTION_METRICS });
+    const realData = await this.getJoaoBarberRealData();
+    const hasBusiness = realData && realData.success;
+
+    return {
+      newBusinesses: hasBusiness ? 1 : 0,
+      churnedBusinesses: 0,
+      netGrowth: hasBusiness ? 1 : 0,
+      churnRatePercent: 0.0,
+      lostMRR: 0.0,
+      periodLabel: 'Histórico inicial',
+    };
   }
 
   async getMonthlyCohorts(): Promise<MonthlyCohortDataPoint[]> {
-    return Promise.resolve([...MOCK_MONTHLY_COHORTS]);
+    // Sem histórico de múltiplos meses e sem gateway, retorna lista vazia honesta
+    return [];
   }
 
+  /**
+   * Retorna apenas negócios reais encontrados na fonte persistida do Firestore.
+   * Não concatena barbearias fictícias.
+   */
   async getBusinesses(): Promise<MasterBusiness[]> {
-    const list = [...MOCK_MASTER_BUSINESSES];
     try {
       const realData = await this.getJoaoBarberRealData();
-      const joaoIndex = list.findIndex(
-        (b) => b.slug === 'joao-barber' || b.id === 'biz_joao_barber'
-      );
 
       if (realData && realData.success) {
-        if (joaoIndex !== -1) {
-          const current = list[joaoIndex];
-          const prof = realData.profile;
-          list[joaoIndex] = {
-            ...current,
-            name: prof?.name || current.name,
-            ownerPhone: prof?.whatsapp || current.ownerPhone,
-            city: prof?.address?.city || current.city,
-            state: prof?.address?.state || current.state,
-            appointmentCount: realData.summary.totalAppointments,
-            monthlyRevenue:
-              realData.summary.calculatedRevenue > 0
-                ? realData.summary.calculatedRevenue
-                : current.monthlyRevenue,
-            cancellationsCount: realData.summary.cancelledAppointments,
-            isLiveFirestore: true,
-            syncError: undefined,
-            professionals: Array.isArray(realData.professionals) ? realData.professionals : [],
-            liveStats: {
-              ...realData.summary,
-              lastSyncedAt: realData.timestamp,
-            },
-          };
-        }
-      } else if (joaoIndex !== -1 && this.syncState.status === 'error') {
-        // Registra explicitamente o erro no negócio para que falhas de conexão não passem desapercebidas
-        list[joaoIndex] = {
-          ...list[joaoIndex],
-          isLiveFirestore: false,
-          syncError: this.syncState.errorMessage || `Falha na API (HTTP ${this.syncState.statusCode || 'desconhecido'})`,
+        const prof = realData.profile;
+        const joaoBusiness: MasterBusiness = {
+          id: 'joao-barber',
+          name: prof?.name || 'João Barber Shop',
+          slug: 'joao-barber',
+          ownerUserId: 'admin',
+          ownerName: prof?.name || 'Administrador',
+          ownerEmail: 'contato@joaobarber.com.br',
+          ownerPhone: prof?.whatsapp || '',
+          status: 'active',
+          plan: 'starter',
+          appointmentCount: realData.summary?.totalAppointments ?? 0,
+          monthlyRevenue: realData.summary?.calculatedRevenue ?? 0,
+          cancellationsCount: realData.summary?.cancelledAppointments ?? 0,
+          city: prof?.address?.city || '',
+          state: prof?.address?.state || '',
+          createdAt: '2025-11-10',
+          lastActiveAt: 'Sincronizado via Firestore',
+          isLiveFirestore: true,
+          professionals: Array.isArray(realData.professionals) ? realData.professionals : [],
+          liveStats: {
+            ...realData.summary,
+            lastSyncedAt: realData.timestamp,
+          },
         };
+
+        return [joaoBusiness];
       }
     } catch (err) {
-      console.error(
-        '[MasterDataService] Erro ao carregar dados reais de joao-barber em getBusinesses:',
-        err
-      );
+      console.error('[MasterDataService] Erro ao carregar negócio persistido:', err);
     }
-    return list;
+
+    return [];
   }
 
   async getBusinessById(businessId: string): Promise<MasterBusiness | null> {
@@ -198,9 +232,7 @@ export class MasterDataService {
   }
 
   /**
-   * Obtém a lista de profissionais cadastrados para uma barbearia.
-   * Para o negócio canônico 'joao-barber', busca os profissionais reais
-   * sincronizados via API do Firestore, com fallback limpo se não encontrado.
+   * Obtém os profissionais reais cadastrados para o negócio canônico.
    */
   async getBusinessProfessionals(businessIdOrSlug: string): Promise<MasterProfessional[]> {
     if (businessIdOrSlug === 'joao-barber' || businessIdOrSlug === 'biz_joao_barber') {
@@ -212,12 +244,51 @@ export class MasterDataService {
     return [];
   }
 
+  /**
+   * Sem uma integração segura de listagem administrativa do Firebase Auth,
+   * retorna lista vazia para evitar exibir mocks e para não tratar profissionais
+   * como contas de acesso à plataforma.
+   */
   async getUsers(): Promise<MasterUser[]> {
-    return Promise.resolve([...MOCK_MASTER_USERS]);
+    return [];
   }
 
+  /**
+   * Consome os agendamentos reais disponibilizados pela API server-side do Firestore.
+   */
   async getAppointments(): Promise<MasterAppointment[]> {
-    return Promise.resolve([...localAppointments]);
+    try {
+      const realData = await this.getJoaoBarberRealData();
+
+      if (realData && realData.success && Array.isArray(realData.recentAppointments)) {
+        const businessName = realData.profile?.name || 'João Barber Shop';
+
+        localAppointments = realData.recentAppointments.map((apt: any) => {
+          return {
+            id: apt.id,
+            businessId: apt.businessId || 'joao-barber',
+            businessName,
+            customerName: apt.customerName || 'Cliente',
+            customerPhone: apt.customerPhone || 'Não informado',
+            date: apt.date || '',
+            time: apt.time || '',
+            service: apt.service || 'Serviço da Barbearia',
+            totalPrice: typeof apt.totalPrice === 'number' ? apt.totalPrice : Number(apt.totalPrice) || 0,
+            status: (apt.status as AppointmentStatus) || 'confirmed',
+            barberName: apt.professionalName || 'Profissional',
+            durationMinutes: apt.duration || 30,
+            createdAt: apt.createdAt || '',
+            statusHistory: [],
+          };
+        });
+
+        return [...localAppointments];
+      }
+    } catch (err) {
+      console.error('[MasterDataService] Erro ao carregar agendamentos reais:', err);
+    }
+
+    return [];
   }
 
   async updateAppointmentStatus(
@@ -261,16 +332,26 @@ export class MasterDataService {
     return Promise.resolve({ ...updatedApt });
   }
 
+  /**
+   * Sem gateway de pagamento configurado, retorna lista vazia.
+   */
   async getSubscriptions(): Promise<MasterSubscription[]> {
-    return Promise.resolve([...MOCK_MASTER_SUBSCRIPTIONS]);
+    return [];
   }
 
+  /**
+   * Retorna atividades baseadas em eventos reais ou lista vazia.
+   */
   async getRecentActivities(): Promise<MasterActivityItem[]> {
-    return Promise.resolve([...MOCK_MASTER_ACTIVITIES]);
+    return [];
   }
 
+  /**
+   * Gráfico de crescimento exige dados consolidados multi-mensais.
+   * Retorna lista vazia honesta.
+   */
   async getGrowthChart(): Promise<ChartDataPoint[]> {
-    return Promise.resolve([...MOCK_GROWTH_CHART]);
+    return [];
   }
 }
 

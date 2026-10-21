@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { MasterTab } from '../../types/master';
 
+import { auth } from '../../services/firebase/config';
+
 interface MasterHeaderProps {
   activeTab: MasterTab;
   onOpenMobileSidebar: () => void;
@@ -68,6 +70,12 @@ export const MasterHeader: React.FC<MasterHeaderProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const current = TAB_TITLES[activeTab] || TAB_TITLES.overview;
+
+  const currentAuthUser = auth?.currentUser;
+  const userDisplayName =
+    currentAuthUser?.displayName ||
+    (currentAuthUser?.email ? currentAuthUser.email.split('@')[0] : 'Master');
+  const userInitial = userDisplayName.charAt(0).toUpperCase();
 
   return (
     <header
@@ -142,7 +150,6 @@ export const MasterHeader: React.FC<MasterHeaderProps> = ({
               title="Notificações da plataforma"
             >
               <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-zinc-950 animate-pulse" />
             </button>
 
             {showNotifications && (
@@ -156,60 +163,18 @@ export const MasterHeader: React.FC<MasterHeaderProps> = ({
                   className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl p-4 z-50 text-left animate-in fade-in zoom-in-95"
                 >
                   <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-white">Notificações da Rede</span>
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium bg-indigo-500/20 text-indigo-300 rounded">
-                        3 novas
-                      </span>
-                    </div>
+                    <span className="text-xs font-semibold text-white">Notificações da Rede</span>
                     <button
                       type="button"
                       onClick={() => setShowNotifications(false)}
                       className="text-[11px] text-zinc-400 hover:text-zinc-200"
                     >
-                      Marcar lidas
+                      Fechar
                     </button>
                   </div>
 
-                  <div className="divide-y divide-zinc-800/60 py-1 max-h-72 overflow-y-auto">
-                    <div className="py-2.5 flex items-start gap-2.5">
-                      <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 shrink-0">
-                        <CheckCircle2 className="w-4 h-4" />
-                      </div>
-                      <div className="text-xs">
-                        <p className="font-medium text-zinc-200">Novo cadastro confirmado</p>
-                        <p className="text-[11px] text-zinc-400">
-                          Barbearia &quot;Faca &amp; Tesoura Club&quot; iniciou o Trial.
-                        </p>
-                        <span className="text-[10px] text-zinc-400">Há 15 min</span>
-                      </div>
-                    </div>
-
-                    <div className="py-2.5 flex items-start gap-2.5">
-                      <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 shrink-0">
-                        <Sparkles className="w-4 h-4" />
-                      </div>
-                      <div className="text-xs">
-                        <p className="font-medium text-zinc-200">Upgrade de plano</p>
-                        <p className="text-[11px] text-zinc-400">
-                          Alfa Club Barber migrou para o plano Pro.
-                        </p>
-                        <span className="text-[10px] text-zinc-400">Há 45 min</span>
-                      </div>
-                    </div>
-
-                    <div className="py-2.5 flex items-start gap-2.5">
-                      <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 shrink-0">
-                        <AlertCircle className="w-4 h-4" />
-                      </div>
-                      <div className="text-xs">
-                        <p className="font-medium text-zinc-200">Falha em fatura recorrente</p>
-                        <p className="text-[11px] text-zinc-400">
-                          Corte Real Lounge precisa regularizar o cartão.
-                        </p>
-                        <span className="text-[10px] text-zinc-400">Ontem às 19:40</span>
-                      </div>
-                    </div>
+                  <div className="py-8 text-center text-xs text-zinc-400">
+                    Nenhuma nova notificação na rede no momento.
                   </div>
                 </div>
               </>
@@ -224,10 +189,10 @@ export const MasterHeader: React.FC<MasterHeaderProps> = ({
             className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 transition-colors"
           >
             <span className="text-xs font-medium text-zinc-200 hidden sm:inline-block">
-              Rafael Macedo
+              {userDisplayName}
             </span>
             <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center font-bold text-xs">
-              R
+              {userInitial}
             </div>
           </button>
         </div>
