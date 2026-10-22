@@ -142,10 +142,10 @@ export default async function handler(req: any, res: any) {
     professionalsSnap.forEach((docSnap: any) => {
       const data = docSnap.data() || {};
       
-      // Filtrar apenas profissionais com status ativo
-      const rawStatus = data.status || (data.active === false ? 'inactive' : 'active');
-      const isExplicitlyActive = rawStatus === 'active' && data.active !== false;
-      if (!isExplicitlyActive) return;
+      // Filtrar apenas profissionais que não estejam explicitamente inativos
+      const rawStatus = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
+      const isExplicitlyInactive = rawStatus === 'inactive' || data.active === false;
+      if (isExplicitlyInactive) return;
 
       // Higienização estrita: NUNCA expor email, whatsapp privado ou dados de auditoria
       professionals.push({

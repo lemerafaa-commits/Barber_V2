@@ -170,19 +170,56 @@ export default async function handler(req: any, res: any) {
         calculatedRevenue += price;
       }
 
-      // Sanitização de campos: não expor dados internos sensíveis
+      // Resolução segura de data de criação
+      let createdAtStr = '';
+      if (data.createdAt) {
+        if (typeof data.createdAt.toDate === 'function') {
+          createdAtStr = data.createdAt.toDate().toISOString();
+        } else if (typeof data.createdAt === 'string') {
+          createdAtStr = data.createdAt;
+        } else if (data.createdAt instanceof Date) {
+          createdAtStr = data.createdAt.toISOString();
+        }
+      }
+
+      // Resolução textual amigável do serviço a partir do array services
+      const rawServices = Array.isArray(data.services) ? data.services : [];
+      const serviceNames = rawServices
+        .map((s: any) => s.categoryName || s.name || s.optionName)
+        .filter(Boolean);
+      const serviceLabel =
+        serviceNames.length > 0
+          ? serviceNames.join(' + ')
+          : typeof data.service === 'string' && data.service.trim()
+          ? data.service.trim()
+          : 'Serviço da Barbearia';
+
+      // Sanitização de campos: mapear dados operacionais para o Master sem expor segredos
       appointments.push({
         id: doc.id,
         businessId: CANONICAL_BUSINESS_ID,
         customerName: data.customerName || 'Cliente',
-        date: data.date,
-        time: data.time,
+        customerPhone: data.customerPhone || 'Não informado',
+        service: serviceLabel,
+        services: rawServices,
+        date: data.date || '',
+        time: data.time || '',
         totalPrice: price,
         duration: data.duration || 30,
         status,
-        createdAt: data.createdAt ? String(data.createdAt) : '',
+        createdAt: createdAtStr,
         professionalName: data.professionalName || 'Não especificado',
+        professionalId: data.professionalId || '',
       });
+    });
+
+    // Ordenação determinística decrescente: agendamentos mais recentes primeiro
+    appointments.sort((a, b) => {
+      const dateComp = (b.date || '').localeCompare(a.date || '');
+      if (dateComp !== 0) return dateComp;
+      const timeComp = (b.time || '').localeCompare(a.time || '');
+      if (timeComp !== 0) return timeComp;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
     });
 
     // 5.3 Serviços cadastrados: services (filtrado estritamente por businessId)
@@ -264,8 +301,8 @@ export default async function handler(req: any, res: any) {
       services,
       professionals,
       appointmentsCount: totalAppointments,
-      // Retorna amostra recente de agendamentos sanitizados
-      recentAppointments: appointments.slice(0, 50),
+      // Retorna amostra recente de agendamentos sanitizados ordenada
+      recentAppointments: appointments.slice(0, 100),
       timestamp: new Date().toISOString(),
     });
   } catch (serverErr: any) {

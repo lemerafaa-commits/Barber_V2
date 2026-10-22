@@ -317,8 +317,13 @@ export default function App() {
 
       // Se atende apenas serviços específicos
       const allowedIds = new Set(barber.serviceIds || []);
+      if (allowedIds.size === 0) {
+        return true;
+      }
       return bookingState.services.every((svc) => {
         const candidates = extractCandidateServiceIds(svc);
+        if (svc.id) candidates.push(svc.id);
+        if (svc.name) candidates.push(svc.name);
         return candidates.some((cId) => allowedIds.has(cId));
       });
     });

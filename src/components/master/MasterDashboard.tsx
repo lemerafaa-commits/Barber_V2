@@ -96,6 +96,24 @@ export const MasterDashboard: React.FC<MasterDashboardProps> = ({
     loadMasterData();
   }, []);
 
+  const [isRefreshingAppointments, setIsRefreshingAppointments] = useState(false);
+
+  const handleRefreshAppointments = async () => {
+    try {
+      setIsRefreshingAppointments(true);
+      const [fetchedAppointments, fetchedMetrics] = await Promise.all([
+        masterDataService.getAppointments(true),
+        masterDataService.getPlatformMetrics(true),
+      ]);
+      setAppointments(fetchedAppointments);
+      setMetrics(fetchedMetrics);
+    } catch (err) {
+      console.error('Erro ao atualizar agendamentos no Master:', err);
+    } finally {
+      setIsRefreshingAppointments(false);
+    }
+  };
+
   const handleUpdateAppointmentStatus = async (
     appointmentId: string,
     newStatus: AppointmentStatus,
@@ -130,7 +148,7 @@ export const MasterDashboard: React.FC<MasterDashboardProps> = ({
         onNavigateHome={onNavigateHome}
         onNavigateAdmin={onNavigateAdmin}
         businessesCount={businesses.length}
-        appointmentsCount={appointments.length > 0 ? appointments.length : (metrics?.totalAppointments || 0)}
+        appointmentsCount={metrics?.totalAppointments ?? appointments.length}
       />
 
       {/* 2. Main Content Wrapper */}
@@ -178,6 +196,8 @@ export const MasterDashboard: React.FC<MasterDashboardProps> = ({
                 <MasterAppointments
                   appointments={appointments}
                   onUpdateStatus={handleUpdateAppointmentStatus}
+                  onRefresh={handleRefreshAppointments}
+                  isRefreshing={isRefreshingAppointments}
                 />
               )}
 

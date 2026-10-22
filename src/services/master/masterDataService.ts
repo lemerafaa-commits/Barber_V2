@@ -40,6 +40,11 @@ export class MasterDataService {
   private cachedRealData: MasterJoaoBarberRealResponse | null = null;
   private lastFetchTime = 0;
 
+  clearCache(): void {
+    this.cachedRealData = null;
+    this.lastFetchTime = 0;
+  }
+
   getSyncState(): MasterApiSyncState {
     return { ...this.syncState };
   }
@@ -125,8 +130,8 @@ export class MasterDataService {
     }
   }
 
-  async getPlatformMetrics(): Promise<PlatformMetrics> {
-    const realData = await this.getJoaoBarberRealData();
+  async getPlatformMetrics(forceRefresh = false): Promise<PlatformMetrics> {
+    const realData = await this.getJoaoBarberRealData(forceRefresh);
 
     if (realData && realData.success && realData.summary) {
       const totalAppointments = realData.summary.totalAppointments || 0;
@@ -185,9 +190,9 @@ export class MasterDataService {
    * Retorna apenas negócios reais encontrados na fonte persistida do Firestore.
    * Não concatena barbearias fictícias.
    */
-  async getBusinesses(): Promise<MasterBusiness[]> {
+  async getBusinesses(forceRefresh = false): Promise<MasterBusiness[]> {
     try {
-      const realData = await this.getJoaoBarberRealData();
+      const realData = await this.getJoaoBarberRealData(forceRefresh);
 
       if (realData && realData.success) {
         const prof = realData.profile;
@@ -256,9 +261,9 @@ export class MasterDataService {
   /**
    * Consome os agendamentos reais disponibilizados pela API server-side do Firestore.
    */
-  async getAppointments(): Promise<MasterAppointment[]> {
+  async getAppointments(forceRefresh = false): Promise<MasterAppointment[]> {
     try {
-      const realData = await this.getJoaoBarberRealData();
+      const realData = await this.getJoaoBarberRealData(forceRefresh);
 
       if (realData && realData.success && Array.isArray(realData.recentAppointments)) {
         const businessName = realData.profile?.name || 'João Barber Shop';

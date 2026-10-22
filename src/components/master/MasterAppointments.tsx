@@ -28,11 +28,15 @@ interface MasterAppointmentsProps {
     newStatus: AppointmentStatus,
     reason: string
   ) => Promise<void> | void;
+  onRefresh?: () => Promise<void> | void;
+  isRefreshing?: boolean;
 }
 
 export const MasterAppointments: React.FC<MasterAppointmentsProps> = ({
   appointments: initialAppointments,
   onUpdateStatus,
+  onRefresh,
+  isRefreshing = false,
 }) => {
   const [appointments, setAppointments] = useState<MasterAppointment[]>(initialAppointments);
   const [searchTerm, setSearchTerm] = useState('');
@@ -183,8 +187,20 @@ export const MasterAppointments: React.FC<MasterAppointmentsProps> = ({
           </p>
         </div>
 
-        {/* Quick totals badge */}
-        <div className="flex items-center gap-3">
+        {/* Quick totals badge & refresh action */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={() => onRefresh()}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+              title="Recarregar agendamentos do Firestore"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 text-indigo-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{isRefreshing ? 'Atualizando...' : 'Atualizar'}</span>
+            </button>
+          )}
           <div className="px-3.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs">
             <span className="text-zinc-300">Volume filtrado: </span>
             <strong className="text-white">{filteredAppointments.length} atendimentos</strong>

@@ -144,6 +144,50 @@ function masterDevApiPlugin(): Plugin {
   };
 }
 
+function catalogDevApiPlugin(): Plugin {
+  return {
+    name: 'catalog-dev-api',
+    configureServer(server) {
+      server.middlewares.use('/api/public/catalog', async (req: any, res: any) => {
+        if (typeof res.status !== 'function') {
+          res.status = function (statusCode: number) {
+            res.statusCode = statusCode;
+            return res;
+          };
+        }
+        if (typeof res.json !== 'function') {
+          res.json = function (data: any) {
+            if (!res.headersSent) {
+              res.setHeader('Content-Type', 'application/json');
+            }
+            res.end(JSON.stringify(data));
+            return res;
+          };
+        }
+
+        try {
+          const { default: handler } = await import('./api/public/catalog.ts');
+          await handler(req, res);
+        } catch (err: any) {
+          if (!res.writableEnded) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: {
+                  code: 'INTERNAL_ERROR',
+                  message: err?.message || 'Erro interno no middleware local do Vite',
+                },
+              })
+            );
+          }
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
     plugins: [
@@ -152,6 +196,7 @@ export default defineConfig(() => {
       whatsappDevApiPlugin(),
       bookingsDevApiPlugin(),
       masterDevApiPlugin(),
+      catalogDevApiPlugin(),
     ],
     resolve: {
       alias: {
