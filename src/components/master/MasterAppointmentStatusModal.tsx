@@ -302,6 +302,14 @@ export const MasterAppointmentStatusModal: React.FC<MasterAppointmentStatusModal
               </div>
             </div>
 
+            {/* Aviso de Transparência sobre Persistência */}
+            <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+              <span>
+                <strong>Modo Simulação de Sessão:</strong> A persistência remota no Firestore depende da disponibilização de endpoint de backend dedicado. No momento, a alteração de status reflete apenas na sessão local do navegador.
+              </span>
+            </div>
+
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
@@ -309,7 +317,7 @@ export const MasterAppointmentStatusModal: React.FC<MasterAppointmentStatusModal
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>{isSubmitting ? 'Gravando Alteração...' : 'Salvar Correção Administrativa'}</span>
+                <span>{isSubmitting ? 'Aplicando...' : 'Aplicar na Sessão Local'}</span>
               </button>
             </div>
           </form>

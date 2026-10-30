@@ -223,7 +223,7 @@ export async function createFirestoreAppointment(
 
 /**
  * Fetches schedule slots for a given business and date for public slot calculation and conflict checking.
- * Prioritizes the anonymous 'busy_slots' collection (Zero PII).
+ * Consults exclusively the anonymous 'busy_slots' collection (Zero PII).
  */
 export async function getFirestoreAppointmentsByDate(
   date: string,
@@ -234,7 +234,7 @@ export async function getFirestoreAppointmentsByDate(
   }
 
   try {
-    // 1. Query the anonymous, zero-PII busy_slots collection
+    // Query exclusively the anonymous, zero-PII busy_slots collection
     const qSlots = query(
       collection(db, 'busy_slots'),
       where('businessId', '==', businessId),
@@ -242,49 +242,23 @@ export async function getFirestoreAppointmentsByDate(
     );
     const slotsSnapshot = await getDocs(qSlots);
 
-    if (!slotsSnapshot.empty) {
-      const records: FirestoreAppointmentRecord[] = [];
-      slotsSnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        records.push({
-          id: docSnap.id,
-          businessId: data.businessId,
-          ...(data.professionalId ? { professionalId: data.professionalId } : {}),
-          customerName: '', // Redacted/Zero PII for public availability
-          customerPhone: '', // Redacted/Zero PII for public availability
-          date: data.date,
-          time: data.time,
-          services: [],
-          totalPrice: 0,
-          duration: data.duration || 30,
-          status: data.status || 'confirmed',
-          createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-        });
-      });
-      return records.sort((a, b) => a.time.localeCompare(b.time));
+    if (slotsSnapshot.empty) {
+      return [];
     }
 
-    // 2. Fallback to appointments collection if busy_slots has no records
-    const qApt = query(
-      collection(db, 'appointments'),
-      where('businessId', '==', businessId),
-      where('date', '==', date)
-    );
-    const aptSnapshot = await getDocs(qApt);
     const records: FirestoreAppointmentRecord[] = [];
-    aptSnapshot.forEach((docSnap) => {
+    slotsSnapshot.forEach((docSnap) => {
       const data = docSnap.data();
       records.push({
         id: docSnap.id,
         businessId: data.businessId,
         ...(data.professionalId ? { professionalId: data.professionalId } : {}),
-        ...(data.professionalName ? { professionalName: data.professionalName } : {}),
-        customerName: '', // Redacted for public availability
-        customerPhone: '', // Redacted for public availability
+        customerName: '', // Redacted/Zero PII for public availability
+        customerPhone: '', // Redacted/Zero PII for public availability
         date: data.date,
         time: data.time,
-        services: data.services || [],
-        totalPrice: data.totalPrice,
+        services: [],
+        totalPrice: 0,
         duration: data.duration || 30,
         status: data.status || 'confirmed',
         createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),

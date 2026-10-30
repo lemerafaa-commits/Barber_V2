@@ -2,57 +2,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isValidAppointment(data) {
-      return data.keys().hasAll([
-        'businessId', 'customerName', 'customerPhone',
-        'date', 'time', 'services', 'totalPrice', 'duration', 'status', 'createdAt'
-      ])
-      && data.businessId is string && data.businessId.size() > 0 && data.businessId.size() <= 64
-      && data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 100
-      && data.customerPhone is string && data.customerPhone.size() >= 8 && data.customerPhone.size() <= 30
-      && data.date is string && data.date.size() == 10
-      && data.time is string && data.time.size() >= 4 && data.time.size() <= 5
-      && data.services is list && data.services.size() > 0 && data.services.size() <= 10
-      && data.totalPrice is number && data.totalPrice >= 0
-      && data.duration is number && data.duration > 0
-      && data.status == 'confirmed'
-      && (!('professionalId' in data) || (data.professionalId is string && data.professionalId.size() > 0 && data.professionalId.size() <= 128))
-      && (!('professionalName' in data) || (data.professionalName is string && data.professionalName.size() > 0 && data.professionalName.size() <= 100));
+    // =========================================================================
+    // HELPER FUNCTIONS: AUTENTICAÇÃO E ISOLAMENTO MULTIEMPRESA (JOBSNIAK V5)
+    // =========================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    function isValidStatusUpdate(existingData, incomingData) {
-      return incomingData.businessId == existingData.businessId
-        && incomingData.customerName == existingData.customerName
-        && incomingData.customerPhone == existingData.customerPhone
-        && incomingData.date == existingData.date
-        && incomingData.time == existingData.time
-        && incomingData.services == existingData.services
-        && incomingData.totalPrice == existingData.totalPrice
-        && incomingData.duration == existingData.duration
-        && incomingData.createdAt == existingData.createdAt
-        && (!('professionalId' in existingData) ? !('professionalId' in incomingData) : ('professionalId' in incomingData && incomingData.professionalId == existingData.professionalId))
-        && (!('professionalName' in existingData) ? !('professionalName' in incomingData) : ('professionalName' in incomingData && incomingData.professionalName == existingData.professionalName))
-        && (incomingData.status == 'cancelled' || incomingData.status == 'completed');
+    function isMaster() {
+      return isAuthenticated()
+        && ('master' in request.auth.token && request.auth.token.master == true);
     }
 
-    function isValidBusySlot(data) {
-      return data.keys().hasAll(['businessId', 'date', 'time', 'duration', 'status'])
-        && data.businessId is string && data.businessId.size() > 0 && data.businessId.size() <= 64
-        && data.date is string && data.date.size() == 10
-        && data.time is string && data.time.size() >= 4 && data.time.size() <= 5
-        && data.duration is number && data.duration > 0
-        && data.status in ['confirmed', 'cancelled', 'completed', 'no_show']
-        && (!('professionalId' in data) || (data.professionalId is string && data.professionalId.size() > 0 && data.professionalId.size() <= 128));
+    function isAdminForBusiness(targetBusinessId) {
+      return isAuthenticated() && (
+        isMaster() || (
+          'role' in request.auth.token && request.auth.token.role == 'admin' &&
+          'businessId' in request.auth.token && request.auth.token.businessId == targetBusinessId
+        )
+      );
     }
 
-    function isValidBusySlotUpdate(existingData, incomingData) {
-      return incomingData.businessId == existingData.businessId
-        && incomingData.date == existingData.date
-        && incomingData.time == existingData.time
-        && incomingData.duration == existingData.duration
-        && (!('professionalId' in existingData) ? !('professionalId' in incomingData) : ('professionalId' in incomingData && incomingData.professionalId == existingData.professionalId))
-        && (incomingData.status == 'cancelled' || incomingData.status == 'completed');
-    }
+    // =========================================================================
+    // HELPER FUNCTIONS: VALIDAÇÃO ESTRUTURAL DE DOCUMENTOS
+    // =========================================================================
 
     function isValidBusinessProfile(data) {
       return data.businessId is string && data.businessId.size() > 0 && data.businessId.size() <= 64
@@ -88,58 +62,6 @@ service cloud.firestore {
         && (!('categoryName' in incomingData) || (incomingData.categoryName is string && incomingData.categoryName.size() <= 100));
     }
 
-    // Public schedule availability (Zero PII - Only date/time slot boundaries)
-    match /busy_slots/{slotId} {
-      // Safe public read: Contains zero personal customer data
-      allow read: if true;
-
-      // Creation synchronized with appointments
-      allow create: if isValidBusySlot(request.resource.data);
-
-      // Status updates when appointments are cancelled/completed
-      allow update: if isValidBusySlotUpdate(resource.data, request.resource.data);
-
-      // Deletion prohibited
-      allow delete: if false;
-    }
-
-    // Complete appointment records (Contains sensitive customer PII: name, phone, services, price)
-    match /appointments/{appointmentId} {
-      // Allow read ONLY for authenticated admin users (protects customer PII from public access)
-      allow read: if request.auth != null;
-
-      // Public creation of valid appointments
-      allow create: if isValidAppointment(request.resource.data);
-
-      // Allow update ONLY to transition status to 'cancelled' or 'completed' while preserving all other fields immutable
-      allow update: if isValidStatusUpdate(resource.data, request.resource.data);
-
-      // Delete remains prohibited
-      allow delete: if false;
-    }
-
-    match /businesses/{businessId} {
-      // Public read for customer booking and branding
-      allow read: if true;
-
-      // Protected write: requires authenticated admin or valid profile structure
-      allow write: if isValidBusinessProfile(request.resource.data);
-    }
-
-    match /services/{serviceId} {
-      // Public read for customer booking and admin dashboard
-      allow read: if true;
-
-      // Allow creation of valid services
-      allow create: if isValidService(request.resource.data);
-
-      // Allow update of services with valid data, maintaining businessId integrity
-      allow update: if isValidServiceUpdate(resource.data, request.resource.data);
-
-      // Physical deletion prohibited (soft delete using active: false)
-      allow delete: if false;
-    }
-
     function isValidProfessional(data) {
       return data.keys().hasAll(['businessId', 'name', 'whatsapp', 'status', 'serviceMode'])
         && data.businessId is string && data.businessId.size() > 0 && data.businessId.size() <= 64
@@ -161,23 +83,108 @@ service cloud.firestore {
         && (!('serviceMode' in incomingData) || incomingData.serviceMode in ['all', 'custom']);
     }
 
-    match /professionals/{professionalId} {
-      // Allow read ONLY for authenticated users (administrative access)
-      allow read: if request.auth != null;
+    // =========================================================================
+    // COLEÇÃO: busy_slots (Grade de Disponibilidade Anônima - Zero PII)
+    // =========================================================================
+    match /busy_slots/{slotId} {
+      // Leitura pública necessária para cálculo dinâmico de horários livres no fluxo de agendamento
+      allow read: if true;
 
-      // Allow creation ONLY for authenticated users with valid professional data
-      allow create: if request.auth != null
-        && isValidProfessional(request.resource.data);
+      // Criação direta pelo cliente proibida (gerenciada exclusivamente pelo backend transacional)
+      allow create: if false;
 
-      // Allow update ONLY for authenticated users maintaining businessId integrity
-      allow update: if request.auth != null
-        && isValidProfessionalUpdate(resource.data, request.resource.data);
+      // Atualização permitida apenas para o administrador autorizado da empresa ou Master,
+      // exclusivamente na conclusão atômica do atendimento ('confirmed' -> 'completed')
+      allow update: if isAdminForBusiness(resource.data.businessId)
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && resource.data.status == 'confirmed'
+        && request.resource.data.status == 'completed';
 
-      // Physical deletion prohibited (soft delete using status: inactive)
+      // Exclusão física proibida
       allow delete: if false;
     }
 
-    // Default deny
+    // =========================================================================
+    // COLEÇÃO: appointments (Registros Completos com Dados Pessoais do Cliente)
+    // =========================================================================
+    match /appointments/{appointmentId} {
+      // Leitura restrita exclusivamente ao administrador autorizado da respectiva empresa ou Master
+      allow read: if isAdminForBusiness(resource.data.businessId);
+
+      // Criação direta pelo cliente estritamente proibida (criação via /api/bookings/create)
+      allow create: if false;
+
+      // Atualização permitida exclusivamente para o administrador da empresa ou Master
+      // registrar a conclusão do atendimento ('confirmed' -> 'completed'),
+      // garantindo que nenhum dado do cliente ou de negócio seja alterado
+      allow update: if isAdminForBusiness(resource.data.businessId)
+        && request.resource.data.businessId == resource.data.businessId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && resource.data.status == 'confirmed'
+        && request.resource.data.status == 'completed';
+
+      // Exclusão física proibida
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // COLEÇÃO: businesses (Perfil e Identidade da Barbearia)
+    // =========================================================================
+    match /businesses/{businessId} {
+      // Leitura pública permitida para apresentação do estabelecimento e horários
+      allow read: if true;
+
+      // Gravação restrita exclusivamente ao administrador autenticado da empresa ou Master
+      allow create, update: if isAdminForBusiness(businessId)
+        && request.resource.data.businessId == businessId
+        && isValidBusinessProfile(request.resource.data);
+
+      // Exclusão física proibida
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // COLEÇÃO: services (Catálogo de Serviços)
+    // =========================================================================
+    match /services/{serviceId} {
+      // Leitura pública permitida para consulta do menu de serviços
+      allow read: if true;
+
+      // Criação restrita ao administrador da empresa indicada no documento ou Master
+      allow create: if isAdminForBusiness(request.resource.data.businessId)
+        && isValidService(request.resource.data);
+
+      // Atualização restrita ao administrador da empresa ou Master, mantendo businessId imutável
+      allow update: if isAdminForBusiness(resource.data.businessId)
+        && isValidServiceUpdate(resource.data, request.resource.data);
+
+      // Exclusão física proibida (soft-delete via active: false)
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // COLEÇÃO: professionals (Equipe e Profissionais)
+    // =========================================================================
+    match /professionals/{professionalId} {
+      // Leitura restrita ao administrador autenticado da empresa titular ou Master
+      allow read: if isAdminForBusiness(resource.data.businessId);
+
+      // Criação restrita ao administrador da empresa informada ou Master
+      allow create: if isAdminForBusiness(request.resource.data.businessId)
+        && isValidProfessional(request.resource.data);
+
+      // Atualização restrita ao administrador da empresa ou Master, mantendo businessId imutável
+      allow update: if isAdminForBusiness(resource.data.businessId)
+        && isValidProfessionalUpdate(resource.data, request.resource.data);
+
+      // Exclusão física proibida (soft-delete via status: 'inactive')
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // BLOQUEIO GLOBAL PADRÃO (DEFAULT DENY)
+    // =========================================================================
     match /{document=**} {
       allow read, write: if false;
     }

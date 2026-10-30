@@ -21,7 +21,7 @@ interface SuccessResponseBody {
 
 interface ErrorResponseBody {
   success: false;
-  error: BookingTransactionErrorCode | 'METHOD_NOT_ALLOWED' | 'UNAUTHORIZED' | 'INTERNAL_ERROR';
+  error: BookingTransactionErrorCode | 'METHOD_NOT_ALLOWED' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'INTERNAL_ERROR';
   message: string;
 }
 
@@ -53,6 +53,8 @@ function mapErrorCodeToHttpStatus(code: string): number {
       return 400;
     case 'UNAUTHORIZED':
       return 401;
+    case 'FORBIDDEN':
+      return 403;
     case 'APPOINTMENT_NOT_FOUND':
       return 404;
     case 'INVALID_STATUS_TRANSITION':
@@ -107,12 +109,17 @@ async function parseRequestBody(req: any): Promise<any> {
  * Vercel Serverless Function para cancelamento administrativo transacional de reservas.
  * Endpoint: POST /api/admin/bookings/cancel
  *
- * Princípios de Segurança e Integridade:
+ * Princípios de Segurança e Integridade (Etapa 1B.3):
  * 1. Exige autenticação administrativa válida via Bearer ID Token do Firebase Auth.
- * 2. Rejeita métodos HTTP diferentes de POST (405).
- * 3. Valida campos estritamente necessários (businessId e appointmentId).
- * 4. Delega a integridade transacional ACID a cancelBookingTransaction().
- * 5. Não expõe detalhes sensíveis de infraestrutura em falhas internas.
+ * 2. Valida criptograficamente a assinatura, emissor e audiência do token com jose.
+ * 3. Captura o payload decodificado e avalia autorização exclusivamente via custom claims:
+ *    - Master: Autorizado globalmente se payload.master === true.
+ *    - Admin local: Exige payload.role === "admin" e payload.businessId válido (string não vazia).
+ * 4. Blindagem anti-IDOR/BOLA:
+ *    - Rejeita com HTTP 403 se o corpo enviar businessId divergente da claim do admin.
+ *    - O businessId da claim verificada é a única fonte autoritativa de isolamento multiempresa.
+ * 5. Delega integridade transacional ACID a cancelBookingTransaction(), com validação
+ *    autoritativa de pertença e tratamento seguro para reservas legadas sem businessId.
  */
 export default async function handler(req: any, res: any) {
   // 1. Validação de Método HTTP (somente POST)
@@ -168,11 +175,13 @@ export default async function handler(req: any, res: any) {
 
   const projectId = process.env.FIREBASE_PROJECT_ID || 'saas-barberaria-teste-v1';
 
+  let tokenPayload: any;
   try {
-    await jwtVerify(idToken, remoteJWKSet, {
+    const verified = await jwtVerify(idToken, remoteJWKSet, {
       issuer: `https://securetoken.google.com/${projectId}`,
       audience: projectId,
     });
+    tokenPayload = verified.payload;
   } catch {
     return sendResponse(res, 401, {
       success: false,
@@ -201,15 +210,6 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const businessId = typeof body.businessId === 'string' ? body.businessId.trim() : '';
-  if (!businessId) {
-    return sendResponse(res, 400, {
-      success: false,
-      error: 'INVALID_DATA',
-      message: 'Campo "businessId" é obrigatório.',
-    });
-  }
-
   const appointmentId = typeof body.appointmentId === 'string' ? body.appointmentId.trim() : '';
   if (!appointmentId) {
     return sendResponse(res, 400, {
@@ -219,11 +219,58 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // 5. Execução do Cancelamento Transacional
+  // 5. Avaliação Autoritativa de Autorização (RBAC & Multi-tenant)
+  // Regra Master: Autorizar acesso global exclusivamente via custom claim verificada no JWT
+  const isMaster = tokenPayload?.master === true;
+  let authorizedBusinessId: string | undefined;
+
+  if (isMaster) {
+    // Master possui acesso global. A empresa será resolvida de forma autoritativa no servidor
+    // a partir do próprio registro do agendamento, sem confiar em inputs do cliente.
+    authorizedBusinessId = undefined;
+  } else {
+    // Regra Admin local: exige role: "admin" e businessId válido nas custom claims
+    const roleClaim = typeof tokenPayload?.role === 'string' ? tokenPayload.role.trim() : '';
+    const businessIdClaim = typeof tokenPayload?.businessId === 'string' ? tokenPayload.businessId.trim() : '';
+
+    if (roleClaim !== 'admin') {
+      return sendResponse(res, 403, {
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'Acesso negado. Privilégio administrativo necessário para cancelar reservas.',
+      });
+    }
+
+    if (!businessIdClaim) {
+      return sendResponse(res, 403, {
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'Acesso negado. Administrador sem vínculo empresarial (claim businessId ausente ou inválida).',
+      });
+    }
+
+    // Se o corpo enviou businessId, ele DEVE coincidir exatamente com a claim autoritativa
+    if (body.businessId !== undefined && body.businessId !== null) {
+      const bodyBusinessId = typeof body.businessId === 'string' ? body.businessId.trim() : '';
+      if (bodyBusinessId !== businessIdClaim) {
+        return sendResponse(res, 403, {
+          success: false,
+          error: 'FORBIDDEN',
+          message: 'Acesso negado. O businessId informado diverge da empresa vinculada ao administrador.',
+        });
+      }
+    }
+
+    // Usar a claim verificada como fonte autoritativa
+    authorizedBusinessId = businessIdClaim;
+  }
+
+  // 6. Execução do Cancelamento Transacional
   try {
     const result = await cancelBookingTransaction({
-      businessId,
+      businessId: authorizedBusinessId,
       appointmentId,
+      callerIsMaster: isMaster,
     });
 
     return sendResponse(res, 200, {

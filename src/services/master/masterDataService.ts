@@ -296,12 +296,21 @@ export class MasterDataService {
     return [];
   }
 
+  /**
+   * Atualização de status em memória local da sessão ativa.
+   * NOTA DE ARQUITETURA (Etapa 1C):
+   * Não realiza persistência no Firestore pois não existe endpoint de backend autorizado
+   * para transições genéricas de status pelo Master. Persistência remota aguarda especificação.
+   */
   async updateAppointmentStatus(
     appointmentId: string,
     newStatus: AppointmentStatus,
     reason: string,
     changedBy: string = 'Rafael Leme (Master)'
   ): Promise<MasterAppointment> {
+    console.warn(
+      `[MasterDataService] updateAppointmentStatus(${appointmentId}, ${newStatus}) executado estritamente em memória local da sessão. Nenhuma gravação efetuada no Firestore.`
+    );
     const aptIndex = localAppointments.findIndex((a) => a.id === appointmentId);
     if (aptIndex === -1) {
       throw new Error(`Agendamento ${appointmentId} não encontrado.`);

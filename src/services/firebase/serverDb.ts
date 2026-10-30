@@ -69,8 +69,9 @@ export interface CreateBookingTransactionResult {
 }
 
 export interface CancelBookingTransactionInput {
-  businessId: string;
+  businessId?: string;
   appointmentId: string;
+  callerIsMaster?: boolean;
 }
 
 export interface CancelBookingTransactionResult {
@@ -81,6 +82,7 @@ export interface CancelBookingTransactionResult {
 }
 
 export type BookingTransactionErrorCode =
+  | 'FORBIDDEN'
   | 'SLOT_CONFLICT'
   | 'IDEMPOTENCY_CONFLICT'
   | 'INVALID_DATA'
@@ -546,6 +548,12 @@ export async function createBookingTransaction(
       );
     }
     const barberData = profSnap.data() as Barber;
+    if (!barberData.businessId || barberData.businessId !== businessId) {
+      throw new BookingTransactionError(
+        'INVALID_DATA',
+        `O profissional "${barberData.name || professionalId}" não pertence ao estabelecimento informado.`
+      );
+    }
     if (barberData.status !== 'active' || barberData.active === false) {
       throw new BookingTransactionError(
         'PROFESSIONAL_INACTIVE',
@@ -578,6 +586,12 @@ export async function createBookingTransaction(
         );
       }
       const data = snap.data() || {};
+      if (!data.businessId || data.businessId !== businessId) {
+        throw new BookingTransactionError(
+          'INVALID_DATA',
+          `O serviço "${data.name || requestedId}" não pertence ao estabelecimento informado.`
+        );
+      }
       if (data.active === false) {
         throw new BookingTransactionError(
           'SERVICE_NOT_FOUND',
@@ -933,9 +947,11 @@ export async function cancelBookingTransaction(
     throw new BookingTransactionError('INVALID_DATA', 'Corpo da requisição de cancelamento inválido.');
   }
 
-  const businessId = typeof input.businessId === 'string' ? input.businessId.trim() : '';
-  if (!businessId) {
-    throw new BookingTransactionError('INVALID_DATA', 'businessId é obrigatório.');
+  const callerIsMaster = input.callerIsMaster === true;
+  const authorizedBusinessId = typeof input.businessId === 'string' ? input.businessId.trim() : '';
+
+  if (!callerIsMaster && !authorizedBusinessId) {
+    throw new BookingTransactionError('INVALID_DATA', 'businessId é obrigatório para administradores locais.');
   }
 
   const appointmentId = typeof input.appointmentId === 'string' ? input.appointmentId.trim() : '';
@@ -972,10 +988,24 @@ export async function cancelBookingTransaction(
 
     const aptData = aptSnap.data() || {};
 
-    if (aptData.businessId && aptData.businessId !== businessId) {
+    // Resolução autoritativa da empresa da reserva
+    const rawBookingBusinessId = aptData.businessId;
+    const bookingBusinessId =
+      typeof rawBookingBusinessId === 'string' ? rawBookingBusinessId.trim() : '';
+
+    // Tratar explicitamente reservas legadas sem businessId (falha segura)
+    if (!bookingBusinessId) {
       throw new BookingTransactionError(
         'INVALID_DATA',
-        'O agendamento não pertence ao estabelecimento informado.'
+        'O agendamento não possui identificação de empresa válida (reserva legada não suportada para cancelamento automático).'
+      );
+    }
+
+    // Se o operador não for Master, a empresa do agendamento DEVE ser exatamente a empresa autorizada
+    if (!callerIsMaster && bookingBusinessId !== authorizedBusinessId) {
+      throw new BookingTransactionError(
+        'FORBIDDEN',
+        'O agendamento não pertence ao estabelecimento autorizado.'
       );
     }
 
@@ -992,15 +1022,15 @@ export async function cancelBookingTransaction(
         ? aptData.professionalId.trim()
         : undefined;
 
-    // Resolução do Documento de Controle da Agenda Diária:
+    // Resolução do Documento de Controle da Agenda Diária baseada na empresa autoritativa do agendamento:
     // Se o agendamento possui professionalId -> documento específico do profissional.
     // Se não possui (reserva legada) -> documento universal da barbearia.
     let scheduleDocRef: DocumentReference | null = null;
     if (date) {
       if (profId) {
-        scheduleDocRef = db.collection('daily_schedules').doc(`${businessId}_${date}_${profId}`);
+        scheduleDocRef = db.collection('daily_schedules').doc(`${bookingBusinessId}_${date}_${profId}`);
       } else {
-        scheduleDocRef = db.collection('daily_schedules').doc(`${businessId}_${date}_universal`);
+        scheduleDocRef = db.collection('daily_schedules').doc(`${bookingBusinessId}_${date}_universal`);
       }
     }
 
