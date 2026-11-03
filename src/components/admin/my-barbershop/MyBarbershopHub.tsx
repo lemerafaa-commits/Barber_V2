@@ -8,15 +8,20 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { BusinessProfile, MyBarbershopSection } from '../../../types/businessProfile';
+import { PublicBookingLinkCard } from '../../common/PublicBookingLinkCard';
 
 interface MyBarbershopHubProps {
   profile: BusinessProfile;
   onNavigateSection: (section: MyBarbershopSection) => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
 export const MyBarbershopHub: React.FC<MyBarbershopHubProps> = ({
   profile,
   onNavigateSection,
+  isLoading = false,
+  error = null,
 }) => {
   // Count open days for preview
   const openDaysCount = Object.values(profile.openingHours).filter(
@@ -35,6 +40,16 @@ export const MyBarbershopHub: React.FC<MyBarbershopHubProps> = ({
           Gerencie a identidade, canais de contato, endereço e horários de funcionamento da sua barbearia.
         </p>
       </div>
+
+      {/* Seção Link de Agendamento */}
+      <PublicBookingLinkCard
+        businessId={profile.businessId || 'joao-barber'}
+        slug={profile.slug || profile.businessId}
+        businessName={profile.name}
+        theme="amber"
+        isLoading={isLoading}
+        error={error}
+      />
 
       {/* 4 Clickable Action Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

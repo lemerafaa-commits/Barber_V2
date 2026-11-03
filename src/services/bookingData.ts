@@ -222,6 +222,7 @@ export async function createBooking(
   request: {
     services?: Service[];
     service?: Service | null;
+    businessId?: string;
     professional: Professional;
     professionalId?: string;
     professionalName?: string;
@@ -301,7 +302,7 @@ export async function createBooking(
 
   // Montagem do payload seguro (apenas identificadores canônicos, sem campos de autoridade de preço/duração)
   const payload = {
-    businessId: 'joao-barber',
+    businessId: request.businessId || 'joao-barber',
     serviceIds: selectedServices.map((s) => s.id),
     professionalId: assignedProfessional.id,
     date: request.selectedDate.dateString,

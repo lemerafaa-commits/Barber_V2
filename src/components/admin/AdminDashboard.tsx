@@ -63,11 +63,18 @@ import { signOutAdmin } from '../../services/firebase/auth';
 import { isFirebaseConfigured } from '../../services/firebase/config';
 
 interface AdminDashboardProps {
+  businessId?: string;
   onGoToPublicPage?: () => void;
   onLogout?: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage, onLogout }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({
+  businessId,
+  onGoToPublicPage,
+  onLogout,
+}) => {
+  const effectiveBusinessId = businessId || 'joao-barber';
+
   // Appointments state initialized with mock data if Firebase is not configured, or empty array while loading from Firestore
   const [appointments, setAppointments] = useState<AdminAppointment[]>(() =>
     !isFirebaseConfigured ? MOCK_ADMIN_APPOINTMENTS : []
@@ -94,8 +101,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
 
   // Business Profile states
   const [profileSection, setProfileSection] = useState<MyBarbershopSection>('hub');
-  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(DEFAULT_BUSINESS_PROFILE);
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => ({
+    ...DEFAULT_BUSINESS_PROFILE,
+    businessId: effectiveBusinessId,
+    slug: effectiveBusinessId,
+  }));
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   // Today reference in ISO (YYYY-MM-DD)
   const today = new Date();
@@ -112,7 +125,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
     if (!isFirebaseConfigured) return;
     setIsLoadingServices(true);
     try {
-      const firestoreServices = await getFirestoreServices('joao-barber');
+      const firestoreServices = await getFirestoreServices(effectiveBusinessId);
       if (firestoreServices && firestoreServices.length > 0) {
         setServices(firestoreServices);
       }
@@ -126,7 +139,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
   // Load services on mount
   useEffect(() => {
     fetchServices();
-  }, []);
+  }, [effectiveBusinessId]);
 
   // Load real appointments from Firestore
   useEffect(() => {
@@ -138,7 +151,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
       }
       setIsLoadingAppointments(true);
       try {
-        const realAppointments = await getFirestoreAppointmentsForAdmin('joao-barber');
+        const realAppointments = await getFirestoreAppointmentsForAdmin(effectiveBusinessId);
         setAppointments(realAppointments);
       } catch (err) {
         console.warn('Agendamentos remotos inacessíveis (regras ou conexão):', err);
@@ -148,26 +161,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
     }
 
     fetchAppointments();
-  }, []);
+  }, [effectiveBusinessId]);
 
   // Load business profile on mount
   useEffect(() => {
     async function fetchProfile() {
+      setIsLoadingProfile(true);
+      setProfileError(null);
       try {
-        const profile = await loadBusinessProfile();
+        const profile = await loadBusinessProfile(effectiveBusinessId);
         setBusinessProfile(profile);
-      } catch (err) {
+      } catch (err: any) {
         console.warn('Using default business profile state:', err);
+        setProfileError(err?.message || 'Falha ao carregar perfil da barbearia.');
+      } finally {
+        setIsLoadingProfile(false);
       }
     }
     fetchProfile();
-  }, []);
+  }, [effectiveBusinessId]);
 
   // Save profile handler (prepared for future Firestore layer)
   const handleSaveProfile = async (updates: Partial<BusinessProfile>) => {
     setIsSavingProfile(true);
     try {
-      const response = await saveBusinessProfile(updates);
+      const response = await saveBusinessProfile(updates, effectiveBusinessId);
       if (response.success && response.data) {
         setBusinessProfile(response.data);
       }
@@ -246,7 +264,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
     } else if (type === 'cancel') {
       setCancellingId(id);
       try {
-        const response = await updateFirestoreAppointmentStatus(id, 'cancelled');
+        const response = await updateFirestoreAppointmentStatus(id, 'cancelled', effectiveBusinessId);
         if (response.success) {
           const result = updateAppointmentStatus(appointments, id, 'cancelled');
           if (result.success) {
@@ -461,6 +479,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
         {mainSpace === 'meus-servicos' ? (
           <ServicesHub
             services={services}
+            businessId={effectiveBusinessId}
             onServicesChange={setServices}
             isLoading={isLoadingServices}
             onRefresh={fetchServices}
@@ -471,6 +490,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
               <MyBarbershopHub
                 profile={businessProfile}
                 onNavigateSection={setProfileSection}
+                isLoading={isLoadingProfile}
+                error={profileError}
               />
             )}
 
@@ -513,7 +534,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onGoToPublicPage
         ) : mainSpace === 'equipe' ? (
           <AdminTeam
             services={services}
-            businessId={businessProfile.businessId || 'joao-barber'}
+            businessId={effectiveBusinessId}
             onRefreshServices={fetchServices}
           />
         ) : (

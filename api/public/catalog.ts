@@ -25,10 +25,28 @@ export interface PublicCatalogProfessional {
   schedule: any[];
 }
 
+export interface PublicCatalogBusinessProfile {
+  businessId: string;
+  name: string;
+  description: string;
+  logoUrl: string;
+  whatsapp: string;
+  instagram: string;
+  address?: {
+    street?: string;
+    number?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+  };
+  openingHours?: Record<string, { isOpen: boolean; openTime: string; closeTime: string }>;
+}
+
 export interface PublicCatalogResponse {
   success: true;
   catalog: {
     businessId: string;
+    profile?: PublicCatalogBusinessProfile | null;
     professionals: PublicCatalogProfessional[];
     services: PublicCatalogService[];
   };
@@ -37,7 +55,7 @@ export interface PublicCatalogResponse {
 export interface PublicCatalogErrorResponse {
   success: false;
   error: {
-    code: 'METHOD_NOT_ALLOWED' | 'FIREBASE_CONFIG_ERROR' | 'INTERNAL_ERROR';
+    code: 'METHOD_NOT_ALLOWED' | 'FIREBASE_CONFIG_ERROR' | 'INTERNAL_ERROR' | 'INVALID_DATA' | 'BUSINESS_NOT_FOUND';
     message: string;
   };
 }
@@ -45,15 +63,31 @@ export interface PublicCatalogErrorResponse {
 /**
  * Utilitário agnóstico para envio de respostas HTTP compatível com
  * Vercel Serverless Functions, Express e Node.js IncomingMessage/ServerResponse.
+ * Configura cabeçalhos de segurança e cache HTTP de forma explícita.
  */
-function sendResponse(res: any, statusCode: number, body: any) {
+function sendResponse(
+  res: any,
+  statusCode: number,
+  body: any,
+  cacheHeaders?: { cacheControl: string; vary?: string }
+) {
+  if (typeof res.setHeader === 'function') {
+    res.setHeader('Content-Type', 'application/json');
+    if (cacheHeaders) {
+      res.setHeader('Cache-Control', cacheHeaders.cacheControl);
+      if (cacheHeaders.vary) {
+        res.setHeader('Vary', cacheHeaders.vary);
+      }
+    } else {
+      // Respostas de erro ou mutações NUNCA são cacheadas em proxies/CDN
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    }
+  }
+
   if (typeof res.status === 'function' && typeof res.json === 'function') {
     return res.status(statusCode).json(body);
   }
   res.statusCode = statusCode;
-  if (typeof res.setHeader === 'function') {
-    res.setHeader('Content-Type', 'application/json');
-  }
   res.end(JSON.stringify(body));
 }
 
@@ -103,9 +137,74 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const businessId = CANONICAL_BUSINESS_ID;
+    // 3. Resolução segura e dinâmica da empresa (tenant) por slug ou businessId
+    let requestedIdentifier = '';
+    if (req.query) {
+      requestedIdentifier = (typeof req.query.slug === 'string' ? req.query.slug : typeof req.query.businessId === 'string' ? req.query.businessId : '') || '';
+    }
+    if (!requestedIdentifier && req.url) {
+      try {
+        const parsedUrl = new URL(req.url, 'http://localhost');
+        requestedIdentifier = parsedUrl.searchParams.get('slug') || parsedUrl.searchParams.get('businessId') || '';
+      } catch {
+        // Ignora erro de parsing em URLs relativas
+      }
+    }
 
-    // 3. Consulta de Serviços e Profissionais em paralelo
+    let businessId = CANONICAL_BUSINESS_ID;
+    let profileData: any = null;
+
+    if (requestedIdentifier) {
+      const cleanIdentifier = requestedIdentifier.trim();
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(cleanIdentifier)) {
+        const errorBody: PublicCatalogErrorResponse = {
+          success: false,
+          error: {
+            code: 'INVALID_DATA',
+            message: 'Identificador de empresa em formato inválido.',
+          },
+        };
+        return sendResponse(res, 400, errorBody);
+      }
+
+      if (cleanIdentifier !== CANONICAL_BUSINESS_ID) {
+        // Resolução autoritativa do negócio no Firestore:
+        // 1. Tenta correspondência direta por document ID
+        const directSnap = await db.collection('businesses').doc(cleanIdentifier).get();
+        if (directSnap.exists) {
+          businessId = directSnap.id;
+          profileData = directSnap.data();
+        } else {
+          // 2. Tenta correspondência por campo slug
+          const slugQuery = await db.collection('businesses').where('slug', '==', cleanIdentifier).limit(1).get();
+          if (!slugQuery.empty) {
+            businessId = slugQuery.docs[0].id;
+            profileData = slugQuery.docs[0].data();
+          } else {
+            const errorBody: PublicCatalogErrorResponse = {
+              success: false,
+              error: {
+                code: 'BUSINESS_NOT_FOUND',
+                message: 'Estabelecimento não encontrado para o identificador informado.',
+              },
+            };
+            return sendResponse(res, 404, errorBody);
+          }
+        }
+      } else {
+        const bizSnap = await db.collection('businesses').doc(businessId).get();
+        if (bizSnap.exists) {
+          profileData = bizSnap.data();
+        }
+      }
+    } else {
+      const bizSnap = await db.collection('businesses').doc(businessId).get();
+      if (bizSnap.exists) {
+        profileData = bizSnap.data();
+      }
+    }
+
+    // 4. Consulta de Serviços e Profissionais em paralelo filtrados pelo tenant
     const [servicesSnap, professionalsSnap] = await Promise.all([
       db.collection('services').where('businessId', '==', businessId).get(),
       db.collection('professionals').where('businessId', '==', businessId).get(),
@@ -164,26 +263,55 @@ export default async function handler(req: any, res: any) {
     // Ordenação determinística de profissionais: por nome ascendente
     professionals.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
+    // Higienização e montagem do perfil público
+    const profile: PublicCatalogBusinessProfile | null = profileData ? {
+      businessId,
+      name: typeof profileData.name === 'string' ? profileData.name.trim() : 'Barbearia',
+      description: typeof profileData.description === 'string' ? profileData.description.trim() : '',
+      logoUrl: typeof profileData.logoUrl === 'string' ? profileData.logoUrl.trim() : '',
+      whatsapp: typeof profileData.whatsapp === 'string' ? profileData.whatsapp.trim() : '',
+      instagram: typeof profileData.instagram === 'string' ? profileData.instagram.trim() : '',
+      address: profileData.address || undefined,
+      openingHours: profileData.openingHours || undefined,
+    } : null;
+
     // 6. Resposta Pública de Sucesso
     const responsePayload: PublicCatalogResponse = {
       success: true,
       catalog: {
         businessId,
+        profile,
         professionals,
         services,
       },
     };
 
-    return sendResponse(res, 200, responsePayload);
+    // Aplica cache seguro de borda (CDN): 30s fresco, 120s stale-while-revalidate.
+    // O isolamento por tenant é rigorosamente garantido pela inclusão da URL completa (incluindo query params) na cache key.
+    return sendResponse(res, 200, responsePayload, {
+      cacheControl: 'public, s-maxage=30, stale-while-revalidate=120',
+      vary: 'Accept-Encoding',
+    });
   } catch (err: any) {
-    console.error('[API /api/public/catalog] Erro interno inesperado ao carregar catálogo:', err?.message || err);
+    console.error('[API /api/public/catalog] Erro ao carregar catálogo:', err?.message || err);
+    const isConfigOrAuthError =
+      err?.code === 7 ||
+      err?.code === 16 ||
+      typeof err?.message === 'string' && (
+        err.message.includes('PERMISSION_DENIED') ||
+        err.message.includes('UNAUTHENTICATED') ||
+        err.message.includes('FIREBASE_CONFIG_ERROR')
+      );
+
     const errorBody: PublicCatalogErrorResponse = {
       success: false,
       error: {
-        code: 'INTERNAL_ERROR',
-        message: 'Ocorreu um erro interno no servidor ao processar a requisição do catálogo.',
+        code: isConfigOrAuthError ? 'FIREBASE_CONFIG_ERROR' : 'INTERNAL_ERROR',
+        message: isConfigOrAuthError
+          ? 'Serviço temporariamente indisponível. Configuração do banco ausente ou sem credenciais de acesso.'
+          : 'Ocorreu um erro interno no servidor ao processar a requisição do catálogo.',
       },
     };
-    return sendResponse(res, 500, errorBody);
+    return sendResponse(res, isConfigOrAuthError ? 503 : 500, errorBody);
   }
 }

@@ -80,3 +80,71 @@ export function getCurrentAdminUser(): User | null {
   }
   return auth.currentUser;
 }
+
+/**
+ * Interface representando a identidade e privilégios verificados de um Administrador.
+ */
+export interface AdminIdentity {
+  uid: string;
+  email: string | null;
+  isAdmin: boolean;
+  businessId: string | null;
+  claims: Record<string, any>;
+}
+
+/**
+ * Valida autoritativamente se um usuário autenticado no Firebase Auth possui Custom Claim de Admin.
+ *
+ * Princípios de Segurança (SEC-01):
+ * 1. Exige que o usuário esteja autenticado no Firebase Auth (UID válido).
+ * 2. Valida as claims criptografadas do token via getIdTokenResult(forceRefresh).
+ * 3. Valida se role === 'admin'.
+ * 4. Valida se businessId é uma string válida e não vazia após trim().
+ * 5. Se o usuário for apenas Master (claims.master === true), não concede automaticamente
+ *    privilégios de admin local sem que possua role === 'admin' e businessId válido.
+ * 6. Suporta forceRefresh: true para recarregar claims recém-atribuídas sem necessidade de relogin.
+ */
+export async function verifyAdminPrivilege(
+  user: User | null,
+  forceRefresh: boolean = false
+): Promise<AdminIdentity | null> {
+  if (!user) return null;
+
+  let isAdmin = false;
+  let businessId: string | null = null;
+  let claims: Record<string, any> = {};
+
+  try {
+    const idTokenResult = await user.getIdTokenResult(forceRefresh);
+    claims = idTokenResult.claims || {};
+
+    const role = typeof claims.role === 'string' ? claims.role.trim() : '';
+    const bId = typeof claims.businessId === 'string' ? claims.businessId.trim() : '';
+
+    if (role === 'admin' && bId.length > 0) {
+      isAdmin = true;
+      businessId = bId;
+    }
+  } catch (err) {
+    console.warn('[AdminAuth] Falha ao inspecionar custom claims do token Firebase:', err);
+  }
+
+  return {
+    uid: user.uid,
+    email: user.email,
+    isAdmin,
+    businessId,
+    claims,
+  };
+}
+
+/**
+ * Método booleano de conveniência para guardas de rota da interface administrativa.
+ */
+export async function isAuthorizedAdminUser(
+  user: User | null,
+  forceRefresh: boolean = false
+): Promise<boolean> {
+  const identity = await verifyAdminPrivilege(user, forceRefresh);
+  return Boolean(identity && identity.isAdmin);
+}

@@ -17,7 +17,6 @@ export interface ServerHandlerResponse {
   };
 }
 
-const EXPECTED_BUSINESS_ID = 'joao-barber';
 
 /**
  * Framework-agnostic server-side request handler for appointment confirmations.
@@ -90,10 +89,24 @@ export async function handleNotificationRequest(
       };
     }
 
-    // 3. Confirm tenant ownership (must match João Barber)
-    if (realAppointment.businessId !== EXPECTED_BUSINESS_ID) {
+    // 3. Confirm tenant integrity and match request businessId if provided
+    const bookingBusinessId = typeof realAppointment.businessId === 'string' ? realAppointment.businessId.trim() : '';
+    if (!bookingBusinessId) {
+      console.warn(`[WhatsApp Server] Appointment ${appointmentId} has no valid businessId. Rejecting.`);
+      return {
+        status: 200,
+        body: {
+          success: false,
+          status: 'INVALID_APPOINTMENT',
+          error: 'Agendamento não possui identificação de empresa válida.',
+        },
+      };
+    }
+
+    const requestBusinessId = typeof payload.businessId === 'string' ? payload.businessId.trim() : '';
+    if (requestBusinessId && bookingBusinessId !== requestBusinessId) {
       console.warn(
-        `[WhatsApp Server] Appointment ${appointmentId} belongs to business "${realAppointment.businessId}", not "${EXPECTED_BUSINESS_ID}". Rejecting.`
+        `[WhatsApp Server] Appointment ${appointmentId} belongs to business "${bookingBusinessId}", not "${requestBusinessId}". Rejecting.`
       );
       return {
         status: 200,

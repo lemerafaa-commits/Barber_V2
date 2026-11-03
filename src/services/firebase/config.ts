@@ -16,9 +16,9 @@ export const isFirebaseConfigured: boolean = Boolean(
 
 export const firebaseConfig = {
   apiKey: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_API_KEY : undefined,
-  authDomain: "saas-barberaria-teste-v1.firebaseapp.com",
-  projectId: "saas-barberaria-teste-v1",
-  storageBucket: "saas-barberaria-teste-v1.firebasestorage.app",
+  authDomain: "saas-barbearia-teste-v1.firebaseapp.com",
+  projectId: "saas-barbearia-teste-v1",
+  storageBucket: "saas-barbearia-teste-v1.firebasestorage.app",
   messagingSenderId: "822706405655",
   appId: "1:822706405655:web:30f1cf136b32f8e56ff752"
 };

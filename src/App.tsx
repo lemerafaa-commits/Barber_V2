@@ -8,13 +8,33 @@ import { BookingConfirmation } from './components/BookingConfirmation';
 import { ProfessionalSelector } from './components/ProfessionalSelector';
 import { BarbershopInfoFooter } from './components/BarbershopInfoFooter';
 import { DevEdgeCasesModal } from './components/DevEdgeCasesModal';
-import { AdminDashboard } from './components/admin/AdminDashboard';
-import { AdminLogin } from './components/admin/AdminLogin';
-import { MasterDashboard } from './components/master/MasterDashboard';
-import { MasterLogin } from './components/master/MasterLogin';
-import { MasterAccessDenied } from './components/master/MasterAccessDenied';
+import { ProductionConfigError } from './components/common/ProductionConfigError';
+import { BusinessRouteError } from './components/common/BusinessRouteError';
+import { ChunkErrorBoundary } from './components/common/ChunkErrorBoundary';
+
+// Carregamento sob demanda (Code Splitting) dos módulos administrativos e master (P1).
+// Garante isolamento estrito: visitantes na rota pública ('/' e '/b/:slug') NUNCA
+// transferem os pacotes de AdminDashboard, MasterDashboard ou suas dependências internas.
+const AdminDashboard = React.lazy(() =>
+  import('./components/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
+);
+const AdminLogin = React.lazy(() =>
+  import('./components/admin/AdminLogin').then((m) => ({ default: m.AdminLogin }))
+);
+const AdminAccessDenied = React.lazy(() =>
+  import('./components/admin/AdminAccessDenied').then((m) => ({ default: m.AdminAccessDenied }))
+);
+const MasterDashboard = React.lazy(() =>
+  import('./components/master/MasterDashboard').then((m) => ({ default: m.MasterDashboard }))
+);
+const MasterLogin = React.lazy(() =>
+  import('./components/master/MasterLogin').then((m) => ({ default: m.MasterLogin }))
+);
+const MasterAccessDenied = React.lazy(() =>
+  import('./components/master/MasterAccessDenied').then((m) => ({ default: m.MasterAccessDenied }))
+);
 import { User } from 'firebase/auth';
-import { subscribeToAuthChanges, signOutAdmin } from './services/firebase/auth';
+import { subscribeToAuthChanges, signOutAdmin, verifyAdminPrivilege } from './services/firebase/auth';
 import { isAuthorizedMasterUser } from './services/master/masterAuthService';
 import { isFirebaseConfigured } from './services/firebase/config';
 import { Loader2 } from 'lucide-react';
@@ -143,11 +163,35 @@ export default function App() {
     setCurrentPath(path);
   };
 
-  // Firebase Auth state for protected admin access
+  // Identificação e validação da rota pública dinâmica /b/:slug
+  const slugMatch = currentPath.match(/^\/b\/([^/?#]+)/i);
+  let routeSlug: string | null = null;
+  let isMalformedSlug = false;
+  if (slugMatch) {
+    try {
+      routeSlug = decodeURIComponent(slugMatch[1]).trim();
+    } catch {
+      isMalformedSlug = true;
+      routeSlug = null;
+    }
+  }
+  const isSlugRoute = Boolean(slugMatch);
+
+  // Status de carregamento e integridade da rota
+  const [routeStatus, setRouteStatus] = useState<
+    'loading' | 'success' | 'not_found' | 'invalid_slug' | 'server_error' | 'empty_catalog'
+  >('loading');
+  const [routeErrorMessage, setRouteErrorMessage] = useState<string | null>(null);
+  const [activeBusinessId, setActiveBusinessId] = useState<string>('joao-barber');
+
+  // Firebase Auth state for protected admin and master access
   const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   const [isMasterAuthorized, setIsMasterAuthorized] = useState<boolean>(false);
   const [isMasterAuthChecking, setIsMasterAuthChecking] = useState<boolean>(true);
+  const [isAdminAuthorized, setIsAdminAuthorized] = useState<boolean>(false);
+  const [isAdminAuthChecking, setIsAdminAuthChecking] = useState<boolean>(true);
+  const [adminBusinessId, setAdminBusinessId] = useState<string | null>(null);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -158,25 +202,37 @@ export default function App() {
 
       if (user) {
         setIsMasterAuthChecking(true);
+        setIsAdminAuthChecking(true);
         try {
-          const authorized = await isAuthorizedMasterUser(user);
+          const [masterAuth, adminIdentity] = await Promise.all([
+            isAuthorizedMasterUser(user),
+            verifyAdminPrivilege(user),
+          ]);
           if (isSubscribed) {
-            setIsMasterAuthorized(authorized);
+            setIsMasterAuthorized(masterAuth);
+            setIsAdminAuthorized(Boolean(adminIdentity?.isAdmin));
+            setAdminBusinessId(adminIdentity?.businessId || null);
           }
         } catch (err) {
-          console.warn('[MasterAuth] Falha ao verificar autorização do usuário:', err);
+          console.warn('[Auth] Falha ao verificar autorização do usuário:', err);
           if (isSubscribed) {
             setIsMasterAuthorized(false);
+            setIsAdminAuthorized(false);
+            setAdminBusinessId(null);
           }
         } finally {
           if (isSubscribed) {
             setIsMasterAuthChecking(false);
+            setIsAdminAuthChecking(false);
           }
         }
       } else {
         if (isSubscribed) {
           setIsMasterAuthorized(false);
           setIsMasterAuthChecking(false);
+          setIsAdminAuthorized(false);
+          setIsAdminAuthChecking(false);
+          setAdminBusinessId(null);
         }
       }
     });
@@ -195,58 +251,146 @@ export default function App() {
     businessProfileToBarbershop(DEFAULT_BUSINESS_PROFILE)
   );
 
-  useEffect(() => {
-    async function fetchBarbershopInfo() {
-      try {
-        const profile = await loadBusinessProfile('joao-barber');
-        setBarbershop(businessProfileToBarbershop(profile));
-      } catch (err) {
-        console.warn('Usando perfil padrão da barbearia:', err);
-      }
-    }
-    fetchBarbershopInfo();
-  }, []);
-
-  // Dynamic Service categories fetched from Firestore (fallback to MOCK_SERVICE_CATEGORIES)
+  // Dynamic Service categories fetched from Firestore
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>(MOCK_SERVICE_CATEGORIES);
   const [isLoadingServices, setIsLoadingServices] = useState<boolean>(false);
 
-  // Active professionals fetched from Firestore (fallback to MOCK_PROFESSIONALS)
+  // Active professionals fetched from Firestore
   const [professionals, setProfessionals] = useState<Professional[]>(MOCK_PROFESSIONALS);
   const [isLoadingProfessionals, setIsLoadingProfessionals] = useState<boolean>(true);
 
-  useEffect(() => {
-    let isMounted = true;
+  // Carregamento autoritativo do catálogo e perfil conforme a rota acessada
+  const loadRouteCatalog = async () => {
+    setIsLoadingServices(true);
+    setIsLoadingProfessionals(true);
+    setRouteErrorMessage(null);
 
-    async function loadCatalog() {
-      setIsLoadingServices(true);
-      setIsLoadingProfessionals(true);
+    // CASO 1: Rota dinâmica pública /b/:slug
+    if (isSlugRoute) {
+      if (isMalformedSlug || !routeSlug || !/^[a-zA-Z0-9_-]{1,64}$/.test(routeSlug)) {
+        setRouteStatus('invalid_slug');
+        setIsLoadingServices(false);
+        setIsLoadingProfessionals(false);
+        return;
+      }
+
+      setRouteStatus('loading');
 
       try {
-        const response = await fetch('/api/public/catalog');
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const response = await fetch(`/api/public/catalog?slug=${encodeURIComponent(routeSlug)}`);
+
+        if (response.status === 404) {
+          // ESTABELECIMENTO NÃO ENCONTRADO: NUNCA SUBSTITUIR SILENCIOSAMENTE PELA JOÃO BARBER!
+          setRouteStatus('not_found');
+          return;
         }
+
+        if (response.status === 400) {
+          setRouteStatus('invalid_slug');
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Falha no servidor (${response.status})`);
+        }
+
         const data = await response.json();
         if (!data.success || !data.catalog) {
-          throw new Error('Resposta inválida da API de catálogo');
+          throw new Error(data.error?.message || 'Resposta de catálogo inválida');
         }
 
-        const { services: apiServices, professionals: apiProfessionals } = data.catalog;
+        const { businessId, profile, services: apiServices, professionals: apiProfessionals } = data.catalog;
 
-        if (isMounted) {
-          // 1. Integrar Serviços Reais com IDs canônicos
+        setActiveBusinessId(businessId);
+
+        // 1. Integrar Perfil da Barbearia
+        if (profile) {
+          setBarbershop(businessProfileToBarbershop(profile, businessId));
+        } else {
+          setBarbershop(businessProfileToBarbershop({
+            name: routeSlug.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            description: 'Barbearia especializada com atendimento de excelência.',
+            logoUrl: DEFAULT_BUSINESS_PROFILE.logoUrl,
+            whatsapp: '',
+            instagram: '',
+            address: { street: '', number: '', neighborhood: '', city: 'Poços de Caldas', state: 'MG' },
+            openingHours: DEFAULT_BUSINESS_PROFILE.openingHours,
+          }, businessId));
+        }
+
+        // 2. Integrar Serviços Reais
+        if (Array.isArray(apiServices) && apiServices.length > 0) {
+          const categories = publicCatalogToBookingCategories(apiServices);
+          if (categories.length > 0) {
+            setServiceCategories(categories);
+          } else {
+            setRouteStatus('empty_catalog');
+            return;
+          }
+        } else {
+          setServiceCategories([]);
+          setRouteStatus('empty_catalog');
+          return;
+        }
+
+        // 3. Integrar Profissionais Reais
+        if (Array.isArray(apiProfessionals) && apiProfessionals.length > 0) {
+          const mapped: Professional[] = apiProfessionals.map((b: any) => ({
+            id: b.id,
+            name: b.name,
+            role: 'Barbeiro Especialista',
+            avatarUrl: b.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250',
+            isAvailable: true,
+            serviceMode: b.serviceMode || 'all',
+            serviceIds: Array.isArray(b.serviceIds) ? b.serviceIds : [],
+            serviceConfigs: Array.isArray(b.serviceConfigs) ? b.serviceConfigs : [],
+            schedule: Array.isArray(b.schedule) ? b.schedule : [],
+          } as any));
+          setProfessionals(mapped);
+        } else {
+          setProfessionals([]);
+        }
+
+        setRouteStatus('success');
+      } catch (err: any) {
+        console.error('[App] Erro ao carregar rota /b/:slug:', err);
+        setRouteErrorMessage(err?.message || 'Não foi possível carregar as informações do estabelecimento.');
+        setRouteStatus('server_error');
+      } finally {
+        setIsLoadingServices(false);
+        setIsLoadingProfessionals(false);
+      }
+      return;
+    }
+
+    // CASO 2: Rota raiz "/" (João Barber - compatibilidade legada)
+    setRouteStatus('loading');
+    setActiveBusinessId('joao-barber');
+    try {
+      // 1. Carregar perfil da João Barber
+      try {
+        const profile = await loadBusinessProfile('joao-barber');
+        setBarbershop(businessProfileToBarbershop(profile, 'joao-barber'));
+      } catch (profErr) {
+        console.warn('[App] Usando perfil padrão para João Barber:', profErr);
+        setBarbershop(businessProfileToBarbershop(DEFAULT_BUSINESS_PROFILE, 'joao-barber'));
+      }
+
+      // 2. Carregar catálogo público da João Barber
+      const response = await fetch('/api/public/catalog');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.catalog) {
+          const { services: apiServices, professionals: apiProfessionals } = data.catalog;
           if (Array.isArray(apiServices) && apiServices.length > 0) {
             const categories = publicCatalogToBookingCategories(apiServices);
             if (categories.length > 0) {
               setServiceCategories(categories);
             }
           }
-
-          // 2. Integrar Profissionais Reais com IDs canônicos
           if (Array.isArray(apiProfessionals) && apiProfessionals.length > 0) {
             const mapped: Professional[] = apiProfessionals.map((b: any) => ({
-              id: b.id, // Document ID canônico real do Firestore
+              id: b.id,
               name: b.name,
               role: b.id.includes('joao') ? 'Barbeiro Líder' : 'Barbeiro Especialista',
               avatarUrl: b.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250',
@@ -256,30 +400,29 @@ export default function App() {
               serviceConfigs: Array.isArray(b.serviceConfigs) ? b.serviceConfigs : [],
               schedule: Array.isArray(b.schedule) ? b.schedule : [],
             } as any));
-
             setProfessionals(mapped);
           }
         }
-      } catch (err: any) {
-        console.warn(
-          '[Catálogo Público] Não foi possível carregar catálogo real via /api/public/catalog. Utilizando fallback do Demo Mode:',
-          err?.message || err
-        );
-        // Fallback resiliente: preserva MOCK_SERVICE_CATEGORIES e MOCK_PROFESSIONALS
-      } finally {
-        if (isMounted) {
-          setIsLoadingServices(false);
-          setIsLoadingProfessionals(false);
-        }
+      } else {
+        // Fallback demo mode para raiz caso API esteja indisponível
+        setServiceCategories(MOCK_SERVICE_CATEGORIES);
+        setProfessionals(MOCK_PROFESSIONALS);
       }
+      setRouteStatus('success');
+    } catch (err: any) {
+      console.warn('[App] Fallback resiliente para João Barber na raiz:', err?.message || err);
+      setServiceCategories(MOCK_SERVICE_CATEGORIES);
+      setProfessionals(MOCK_PROFESSIONALS);
+      setRouteStatus('success');
+    } finally {
+      setIsLoadingServices(false);
+      setIsLoadingProfessionals(false);
     }
+  };
 
-    loadCatalog();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    loadRouteCatalog();
+  }, [currentPath]);
 
 
 
@@ -385,7 +528,7 @@ export default function App() {
     setIsLoadingTimeSlots(true);
     setTimeSlotsError(null);
     try {
-      const records = await getFirestoreAppointmentsByDate(dateStr, 'joao-barber');
+      const records = await getFirestoreAppointmentsByDate(dateStr, activeBusinessId);
       setDayAppointments(records);
     } catch (err) {
       console.warn('Utilizando horários disponíveis padrão para agendamento:', err);
@@ -402,7 +545,7 @@ export default function App() {
     } else {
       setDayAppointments([]);
     }
-  }, [bookingState.selectedDate?.dateString]);
+  }, [bookingState.selectedDate?.dateString, activeBusinessId]);
 
   // Total duration of all selected services
   const totalDurationMinutes = useMemo(() => {
@@ -561,6 +704,7 @@ export default function App() {
 
     try {
       const appointment = await createBooking({
+        businessId: activeBusinessId,
         services: bookingState.services,
         service: bookingState.service,
         professional: bookingState.professional || MOCK_PROFESSIONALS[0],
@@ -621,45 +765,135 @@ export default function App() {
   // Render Admin space if path is /admin
   if (currentPath.startsWith('/admin')) {
     // Quando o Firebase está configurado no ambiente (Produção / Staging),
-    // o acesso é estritamente protegido pelo Firebase Authentication real.
+    // o acesso é estritamente protegido pelo Firebase Authentication com Custom Claims (SEC-01).
     if (isFirebaseConfigured) {
-      if (isAuthChecking) {
+      if (isAuthChecking || isAdminAuthChecking) {
         return (
           <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-            <span className="text-xs text-zinc-400 font-medium">Verificando autorização...</span>
+            <span className="text-xs text-zinc-400 font-medium">Validando privilégios administrativos...</span>
           </div>
         );
       }
 
       if (!adminUser) {
         return (
-          <AdminLogin
-            onLoginSuccess={() => {
-              // State automatically transitions via onAuthStateChanged
-            }}
-            onGoToPublicPage={() => navigateTo('/')}
-          />
+          <ChunkErrorBoundary fallbackTitle="Erro ao carregar Login Administrativo" onGoHome={() => navigateTo('/')}>
+            <React.Suspense
+              fallback={
+                <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                  <span className="text-xs text-zinc-400 font-medium">Carregando tela de login...</span>
+                </div>
+              }
+            >
+              <AdminLogin
+                onLoginSuccess={() => {
+                  // Transição de estado acionada automaticamente por onAuthStateChanged
+                }}
+                onGoToPublicPage={() => navigateTo('/')}
+              />
+            </React.Suspense>
+          </ChunkErrorBoundary>
+        );
+      }
+
+      // Usuário autenticado, mas NÃO possui privilégios de Admin (role === 'admin' e businessId válido)
+      if (!isAdminAuthorized) {
+        return (
+          <ChunkErrorBoundary fallbackTitle="Erro ao carregar Módulo Administrativo" onGoHome={() => navigateTo('/')}>
+            <React.Suspense
+              fallback={
+                <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                  <span className="text-xs text-zinc-400 font-medium">Carregando...</span>
+                </div>
+              }
+            >
+              <AdminAccessDenied
+                userEmail={adminUser.email}
+                isMaster={isMasterAuthorized}
+                onLogout={async () => {
+                  try {
+                    await signOutAdmin();
+                  } catch (e) {
+                    console.error('[Admin] Erro ao encerrar sessão:', e);
+                  }
+                }}
+                onGoToMasterPage={() => navigateTo('/master')}
+                onGoToPublicPage={() => navigateTo('/')}
+                onRefreshPermissions={async () => {
+                  try {
+                    const identity = await verifyAdminPrivilege(adminUser, true);
+                    const isAuth = Boolean(identity?.isAdmin);
+                    setIsAdminAuthorized(isAuth);
+                    setAdminBusinessId(identity?.businessId || null);
+                    return isAuth;
+                  } catch (err) {
+                    console.warn('[AdminAuth] Erro ao recarregar claims do usuário:', err);
+                    return false;
+                  }
+                }}
+              />
+            </React.Suspense>
+          </ChunkErrorBoundary>
         );
       }
 
       return (
-        <AdminDashboard
-          onGoToPublicPage={() => navigateTo('/')}
-          onLogout={() => {
-            // Handled via onAuthStateChanged, user state resets to null
-          }}
-        />
+        <ChunkErrorBoundary fallbackTitle="Erro ao carregar o Painel Administrativo" onGoHome={() => navigateTo('/')}>
+          <React.Suspense
+            fallback={
+              <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                <span className="text-xs text-zinc-400 font-medium">Carregando painel administrativo...</span>
+              </div>
+            }
+          >
+            <AdminDashboard
+              businessId={adminBusinessId || 'joao-barber'}
+              onGoToPublicPage={() => navigateTo('/')}
+              onLogout={() => {
+                // Handled via onAuthStateChanged, user state resets to null
+              }}
+            />
+          </React.Suspense>
+        </ChunkErrorBoundary>
       );
     }
 
-    // Modo Demonstração exclusivo para ambiente onde o Firebase não está configurado (Preview do Google AI Studio)
-    return (
-      <AdminDashboard
-        onGoToPublicPage={() => navigateTo('/')}
-        onLogout={() => navigateTo('/')}
-      />
-    );
+    // Em build de produção (PROD), caso o Firebase não esteja configurado,
+    // o acesso administrativo em modo Mock é sumariamente BLOQUEADO.
+    if (!isFirebaseConfigured) {
+      if (import.meta.env.PROD) {
+        return (
+          <ProductionConfigError
+            title="Painel Administrativo Indisponível"
+            description="Os serviços de autenticação e banco de dados em nuvem não foram inicializados para este ambiente de produção. Por segurança estrita, o acesso administrativo permanece bloqueado até a conclusão da configuração das variáveis de ambiente."
+            onGoHome={() => navigateTo('/')}
+          />
+        );
+      }
+
+      // Modo Demonstração exclusivo para ambiente onde o Firebase não está configurado (Preview do Google AI Studio)
+      return (
+        <ChunkErrorBoundary fallbackTitle="Erro ao carregar o Painel Administrativo" onGoHome={() => navigateTo('/')}>
+          <React.Suspense
+            fallback={
+              <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                <span className="text-xs text-zinc-400 font-medium">Carregando painel administrativo (Demo)...</span>
+              </div>
+            }
+          >
+            <AdminDashboard
+              onGoToPublicPage={() => navigateTo('/')}
+              onLogout={() => navigateTo('/')}
+            />
+          </React.Suspense>
+        </ChunkErrorBoundary>
+      );
+    }
   }
 
   // Render Master Dashboard if path is /master (Área Restrita do Superadministrador)
@@ -679,68 +913,152 @@ export default function App() {
       // Caso 1: Usuário não autenticado no Firebase Auth -> Exibe Login do Master
       if (!adminUser) {
         return (
-          <MasterLogin
-            onLoginSuccess={() => {
-              // Transição automática disparada via onAuthStateChanged
-            }}
-            onGoToPublicPage={() => navigateTo('/')}
-            onGoToAdminPage={() => navigateTo('/admin')}
-          />
+          <ChunkErrorBoundary fallbackTitle="Erro ao carregar Login do Superadministrador" onGoHome={() => navigateTo('/')}>
+            <React.Suspense
+              fallback={
+                <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                  <span className="text-xs text-zinc-400 font-medium">Carregando login do Superadministrador...</span>
+                </div>
+              }
+            >
+              <MasterLogin
+                onLoginSuccess={() => {
+                  // Transição automática disparada via onAuthStateChanged
+                }}
+                onGoToPublicPage={() => navigateTo('/')}
+                onGoToAdminPage={() => navigateTo('/admin')}
+              />
+            </React.Suspense>
+          </ChunkErrorBoundary>
         );
       }
 
       // Caso 2: Usuário autenticado, mas NÃO possui privilégios de Master (ex: barbeiro comum) -> Tela 403 amigável
       if (!isMasterAuthorized) {
         return (
-          <MasterAccessDenied
-            userEmail={adminUser.email}
-            onLogout={async () => {
-              try {
-                await signOutAdmin();
-              } catch (e) {
-                console.error('[Master] Erro ao encerrar sessão:', e);
+          <ChunkErrorBoundary fallbackTitle="Erro ao carregar Módulo Master" onGoHome={() => navigateTo('/')}>
+            <React.Suspense
+              fallback={
+                <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                  <span className="text-xs text-zinc-400 font-medium">Carregando...</span>
+                </div>
               }
-            }}
-            onGoToAdminPage={() => navigateTo('/admin')}
-            onGoToPublicPage={() => navigateTo('/')}
-            onRefreshPermissions={async () => {
-              try {
-                const authorized = await isAuthorizedMasterUser(adminUser, true);
-                setIsMasterAuthorized(authorized);
-                return authorized;
-              } catch (err) {
-                console.warn('[MasterAuth] Erro ao recarregar claims do usuário:', err);
-                return false;
-              }
-            }}
-          />
+            >
+              <MasterAccessDenied
+                userEmail={adminUser.email}
+                onLogout={async () => {
+                  try {
+                    await signOutAdmin();
+                  } catch (e) {
+                    console.error('[Master] Erro ao encerrar sessão:', e);
+                  }
+                }}
+                onGoToAdminPage={() => navigateTo('/admin')}
+                onGoToPublicPage={() => navigateTo('/')}
+                onRefreshPermissions={async () => {
+                  try {
+                    const authorized = await isAuthorizedMasterUser(adminUser, true);
+                    setIsMasterAuthorized(authorized);
+                    return authorized;
+                  } catch (err) {
+                    console.warn('[MasterAuth] Erro ao recarregar claims do usuário:', err);
+                    return false;
+                  }
+                }}
+              />
+            </React.Suspense>
+          </ChunkErrorBoundary>
         );
       }
 
       // Caso 3: Autenticado e plenamente autorizado como Superadmin Master -> Renderiza MasterDashboard
       return (
-        <MasterDashboard
-          onNavigateHome={() => navigateTo('/')}
-          onNavigateAdmin={() => navigateTo('/admin')}
-          onLogout={async () => {
-            try {
-              await signOutAdmin();
-            } catch (e) {
-              console.error('[Master] Erro ao encerrar sessão:', e);
+        <ChunkErrorBoundary fallbackTitle="Erro ao carregar o Painel Master" onGoHome={() => navigateTo('/')}>
+          <React.Suspense
+            fallback={
+              <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                <span className="text-xs text-zinc-400 font-medium">Carregando painel do Superadministrador...</span>
+              </div>
             }
-          }}
-        />
+          >
+            <MasterDashboard
+              onNavigateHome={() => navigateTo('/')}
+              onNavigateAdmin={() => navigateTo('/admin')}
+              onLogout={async () => {
+                try {
+                  await signOutAdmin();
+                } catch (e) {
+                  console.error('[Master] Erro ao encerrar sessão:', e);
+                }
+              }}
+            />
+          </React.Suspense>
+        </ChunkErrorBoundary>
       );
     }
 
-    // Modo Demonstração exclusivo para ambiente sem Firebase (Preview AI Studio)
-    return (
-      <MasterDashboard
-        onNavigateHome={() => navigateTo('/')}
-        onNavigateAdmin={() => navigateTo('/admin')}
-        onLogout={() => navigateTo('/')}
-      />
-    );
+    // Em build de produção (PROD), caso o Firebase não esteja configurado,
+    // o acesso Master em modo Mock é sumariamente BLOQUEADO.
+    if (!isFirebaseConfigured) {
+      if (import.meta.env.PROD) {
+        return (
+          <ProductionConfigError
+            title="Painel Master Indisponível"
+            description="Os serviços de autenticação e banco de dados em nuvem não foram inicializados para este ambiente de produção. Por segurança estrita, o acesso ao painel Master permanece bloqueado até a conclusão da configuração das variáveis de ambiente."
+            onGoHome={() => navigateTo('/')}
+          />
+        );
+      }
+
+      // Modo Demonstração exclusivo para ambiente sem Firebase (Preview AI Studio)
+      return (
+        <ChunkErrorBoundary fallbackTitle="Erro ao carregar o Painel Master" onGoHome={() => navigateTo('/')}>
+          <React.Suspense
+            fallback={
+              <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                <span className="text-xs text-zinc-400 font-medium">Carregando painel do Superadministrador (Demo)...</span>
+              </div>
+            }
+          >
+            <MasterDashboard
+              onNavigateHome={() => navigateTo('/')}
+              onNavigateAdmin={() => navigateTo('/admin')}
+              onLogout={() => navigateTo('/')}
+            />
+          </React.Suspense>
+        </ChunkErrorBoundary>
+      );
+    }
+  }
+
+  // Tratamento de estados da rota pública dinâmica /b/:slug
+  if (isSlugRoute) {
+    if (routeStatus === 'loading') {
+      return (
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+          <span className="text-xs text-zinc-400 font-medium">Carregando catálogo da barbearia...</span>
+        </div>
+      );
+    }
+
+    if (routeStatus !== 'success') {
+      return (
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col justify-center items-center pb-16 antialiased">
+          <BusinessRouteError
+            type={routeStatus}
+            slug={routeSlug}
+            errorMessage={routeErrorMessage}
+            onRetry={loadRouteCatalog}
+            onGoHome={() => navigateTo('/')}
+          />
+        </div>
+      );
+    }
   }
 
   return (

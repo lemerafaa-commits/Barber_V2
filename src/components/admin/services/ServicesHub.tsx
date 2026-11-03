@@ -29,6 +29,7 @@ import { ServiceFormModal } from './ServiceFormModal';
 
 interface ServicesHubProps {
   services: AdminService[];
+  businessId?: string;
   onServicesChange: (updatedServices: AdminService[]) => void;
   isLoading?: boolean;
   onRefresh?: () => Promise<void>;
@@ -36,6 +37,7 @@ interface ServicesHubProps {
 
 export const ServicesHub: React.FC<ServicesHubProps> = ({
   services,
+  businessId,
   onServicesChange,
   isLoading = false,
   onRefresh,
@@ -108,7 +110,7 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
         setSelectedServiceToEdit(null);
       } else {
         // Create in Cloud Firestore
-        const createdService = await createFirestoreService(serviceData, CANONICAL_BUSINESS_ID);
+        const createdService = await createFirestoreService(serviceData, businessId || CANONICAL_BUSINESS_ID);
         onServicesChange([...services, createdService]);
         showFeedback(`Serviço "${serviceData.name}" adicionado com sucesso no Firestore!`);
         setIsModalOpen(false);

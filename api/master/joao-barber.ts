@@ -104,7 +104,7 @@ export default async function handler(req: any, res: any) {
       }
     } catch {
       // 3.2 Validação direta via JWKS público da Google (garante verificação estrita)
-      const projectId = process.env.FIREBASE_PROJECT_ID || 'saas-barberaria-teste-v1';
+      const projectId = process.env.FIREBASE_PROJECT_ID || 'saas-barbearia-teste-v1';
       const { payload } = await jwtVerify(idToken, remoteJWKSet, {
         issuer: `https://securetoken.google.com/${projectId}`,
         audience: projectId,

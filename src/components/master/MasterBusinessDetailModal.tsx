@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { MasterBusiness, MasterUser, MasterProfessional } from '../../types/master';
 import { masterDataService } from '../../services/master/masterDataService';
+import { PublicBookingLinkCard } from '../common/PublicBookingLinkCard';
 
 interface MasterBusinessDetailModalProps {
   business: MasterBusiness | null;
@@ -268,6 +269,15 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
                 <span className="text-[11px] text-zinc-300 font-medium">Entidade Principal</span>
               </div>
 
+              {/* Seção de Compartilhamento do Link Público */}
+              <PublicBookingLinkCard
+                key={business.id}
+                businessId={business.id}
+                slug={business.slug}
+                businessName={business.name}
+                theme="indigo"
+              />
+
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <span className="text-zinc-300 block text-[11px]">Nome da Barbearia:</span>
@@ -276,11 +286,13 @@ export const MasterBusinessDetailModal: React.FC<MasterBusinessDetailModalProps>
                 <div>
                   <span className="text-zinc-300 block text-[11px]">Slug / Link Público:</span>
                   <a
-                    href={`#/${business.slug}`}
+                    href={`/b/${business.slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="text-indigo-400 hover:text-indigo-300 font-mono text-xs flex items-center gap-1 mt-0.5"
                     title="Acessar página de agendamento do cliente"
                   >
-                    <span>/{business.slug}</span>
+                    <span>/b/{business.slug}</span>
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>

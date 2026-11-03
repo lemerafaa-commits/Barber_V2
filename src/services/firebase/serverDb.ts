@@ -191,7 +191,7 @@ function normalizePrivateKey(rawKey?: string): string | undefined {
 
 /**
  * Garante a inicialização única do Firebase Admin App no lado do servidor.
- * Reutiliza FIREBASE_SERVICE_ACCOUNT, chaves individuais ou ADC com fallback para saas-barberaria-teste-v1.
+ * Reutiliza FIREBASE_SERVICE_ACCOUNT, chaves individuais ou ADC com fallback para saas-barbearia-teste-v1.
  */
 export function ensureAdminApp(): App {
   if (adminApp) {
@@ -199,7 +199,7 @@ export function ensureAdminApp(): App {
   }
 
   const envProjectId = normalizeEnvString(process.env.FIREBASE_PROJECT_ID);
-  const defaultProjectId = 'saas-barberaria-teste-v1';
+  const defaultProjectId = 'saas-barbearia-teste-v1';
   const projectId = envProjectId || defaultProjectId;
   const privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
   const clientEmail = normalizeEnvString(process.env.FIREBASE_CLIENT_EMAIL);

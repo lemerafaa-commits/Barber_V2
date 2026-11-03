@@ -50,9 +50,9 @@ export class NotificationService {
       };
     }
 
-    // Tenant boundary check: Ensure notification is for João Barber
-    if (businessId !== 'joao-barber') {
-      console.warn(`[WhatsApp] Rejected confirmation for unauthorized businessId: ${businessId}`);
+    // Tenant boundary check: Ensure valid non-empty businessId
+    if (typeof businessId !== 'string' || !businessId.trim()) {
+      console.warn(`[WhatsApp] Rejected confirmation for invalid businessId: ${businessId}`);
       return {
         success: false,
         status: 'INVALID_APPOINTMENT',

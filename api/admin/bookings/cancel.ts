@@ -173,7 +173,7 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const projectId = process.env.FIREBASE_PROJECT_ID || 'saas-barberaria-teste-v1';
+  const projectId = process.env.FIREBASE_PROJECT_ID || 'saas-barbearia-teste-v1';
 
   let tokenPayload: any;
   try {

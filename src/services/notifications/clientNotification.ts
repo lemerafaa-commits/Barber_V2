@@ -36,7 +36,7 @@ export async function triggerWhatsAppConfirmation(
   try {
     const payload = {
       appointmentId: appointment.id,
-      businessId: 'joao-barber',
+      businessId: (appointment as any).businessId || 'joao-barber',
     };
 
     const response = await fetch('/api/whatsapp/confirmation', {

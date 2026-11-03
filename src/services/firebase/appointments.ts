@@ -319,7 +319,8 @@ export async function getFirestoreAppointmentsForAdmin(
  */
 export async function updateFirestoreAppointmentStatus(
   appointmentId: string,
-  status: 'cancelled' | 'completed'
+  status: 'cancelled' | 'completed',
+  businessId?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (!isFirebaseConfigured || !db) {
     return { success: true };
@@ -354,7 +355,7 @@ export async function updateFirestoreAppointmentStatus(
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          businessId: 'joao-barber',
+          businessId: businessId || 'joao-barber',
           appointmentId,
         }),
       });

@@ -14,6 +14,7 @@ export const CANONICAL_BUSINESS_ID = 'joao-barber';
  */
 export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   businessId: CANONICAL_BUSINESS_ID,
+  slug: CANONICAL_BUSINESS_ID,
   name: 'Barbearia',
   description: 'Estilo, precisão e cuidado em cada corte.',
   logoUrl: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=200&auto=format&fit=crop&q=80',
@@ -45,11 +46,12 @@ export function normalizeBusinessProfile(
   fallbackBusinessId = CANONICAL_BUSINESS_ID
 ): BusinessProfile {
   if (!data) {
-    return { ...DEFAULT_BUSINESS_PROFILE, businessId: fallbackBusinessId };
+    return { ...DEFAULT_BUSINESS_PROFILE, businessId: fallbackBusinessId, slug: fallbackBusinessId };
   }
 
   return {
     businessId: data.businessId || fallbackBusinessId,
+    slug: typeof data.slug === 'string' && data.slug.trim().length > 0 ? data.slug.trim() : (data.businessId || fallbackBusinessId),
     name: typeof data.name === 'string' && data.name.trim().length > 0 ? data.name : DEFAULT_BUSINESS_PROFILE.name,
     description: typeof data.description === 'string' ? data.description : DEFAULT_BUSINESS_PROFILE.description,
     logoUrl: typeof data.logoUrl === 'string' && data.logoUrl.trim().length > 0 ? data.logoUrl : DEFAULT_BUSINESS_PROFILE.logoUrl,
@@ -163,6 +165,7 @@ export async function saveFirestoreBusinessProfile(
       updatedAt: serverTimestamp(),
     };
 
+    if (updates.slug !== undefined) cleanUpdates.slug = updates.slug;
     if (updates.name !== undefined) cleanUpdates.name = updates.name;
     if (updates.description !== undefined) cleanUpdates.description = updates.description;
     if (updates.logoUrl !== undefined) cleanUpdates.logoUrl = updates.logoUrl;

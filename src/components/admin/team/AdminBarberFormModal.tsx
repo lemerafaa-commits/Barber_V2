@@ -31,6 +31,7 @@ interface AdminBarberFormModalProps {
   onSave: (barberData: Omit<Barber, 'id' | 'createdAt'> & { id?: string }) => void;
   initialBarber?: Barber | null;
   services: AdminService[];
+  businessId?: string;
 }
 
 const AVATAR_PRESETS = [
@@ -48,6 +49,7 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
   onSave,
   initialBarber,
   services,
+  businessId,
 }) => {
   const isEditing = Boolean(initialBarber);
 
@@ -363,7 +365,7 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
 
     onSave({
       ...(initialBarber ? { id: initialBarber.id } : {}),
-      businessId: initialBarber?.businessId || 'joao-barber',
+      businessId: initialBarber?.businessId || businessId || 'joao-barber',
       name: name.trim(),
       whatsapp: whatsapp.trim(),
       email: email.trim() || undefined,

@@ -634,6 +634,7 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
         onSave={handleSaveBarber}
         initialBarber={editingBarber}
         services={services}
+        businessId={businessId}
       />
 
       {/* Details Modal */}

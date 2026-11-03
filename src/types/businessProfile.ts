@@ -24,6 +24,7 @@ export interface BusinessAddress {
 
 export interface BusinessProfile {
   businessId?: string;
+  slug?: string;
   name: string;
   description: string;
   logoUrl: string;
