@@ -33,6 +33,9 @@ const MasterLogin = React.lazy(() =>
 const MasterAccessDenied = React.lazy(() =>
   import('./components/master/MasterAccessDenied').then((m) => ({ default: m.MasterAccessDenied }))
 );
+const PublicSignupPage = React.lazy(() =>
+  import('./components/signup/PublicSignupPage').then((m) => ({ default: m.PublicSignupPage }))
+);
 import { User } from 'firebase/auth';
 import { subscribeToAuthChanges, signOutAdmin, verifyAdminPrivilege } from './services/firebase/auth';
 import { isAuthorizedMasterUser } from './services/master/masterAuthService';
@@ -261,6 +264,15 @@ export default function App() {
 
   // Carregamento autoritativo do catálogo e perfil conforme a rota acessada
   const loadRouteCatalog = async () => {
+    // Rotas administrativas, master ou de cadastro público gerenciam suas próprias telas
+    if (
+      currentPath.startsWith('/admin') ||
+      currentPath.startsWith('/master') ||
+      currentPath.startsWith('/cadastro')
+    ) {
+      return;
+    }
+
     setIsLoadingServices(true);
     setIsLoadingProfessionals(true);
     setRouteErrorMessage(null);
@@ -792,6 +804,7 @@ export default function App() {
                   // Transição de estado acionada automaticamente por onAuthStateChanged
                 }}
                 onGoToPublicPage={() => navigateTo('/')}
+                onGoToSignup={() => navigateTo('/cadastro')}
               />
             </React.Suspense>
           </ChunkErrorBoundary>
@@ -852,7 +865,11 @@ export default function App() {
           >
             <AdminDashboard
               businessId={adminBusinessId || 'joao-barber'}
-              onGoToPublicPage={() => navigateTo('/')}
+              onGoToPublicPage={() => {
+                if (adminBusinessId && adminBusinessId.trim().length > 0) {
+                  navigateTo(`/b/${adminBusinessId.trim()}`);
+                }
+              }}
               onLogout={() => {
                 // Handled via onAuthStateChanged, user state resets to null
               }}
@@ -1033,6 +1050,28 @@ export default function App() {
         </ChunkErrorBoundary>
       );
     }
+  }
+
+  // Render Public Signup page if path is /cadastro
+  if (currentPath === '/cadastro' || currentPath.startsWith('/cadastro')) {
+    return (
+      <ChunkErrorBoundary fallbackTitle="Erro ao carregar Cadastro" onGoHome={() => navigateTo('/')}>
+        <React.Suspense
+          fallback={
+            <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+              <span className="text-xs text-zinc-400 font-medium">Carregando formulário de cadastro...</span>
+            </div>
+          }
+        >
+          <PublicSignupPage
+            onGoToLogin={() => navigateTo('/admin')}
+            onGoToPublicPage={() => navigateTo('/')}
+            onGoToTenantPage={(tenantSlug: string) => navigateTo(`/b/${tenantSlug}`)}
+          />
+        </React.Suspense>
+      </ChunkErrorBoundary>
+    );
   }
 
   // Tratamento de estados da rota pública dinâmica /b/:slug

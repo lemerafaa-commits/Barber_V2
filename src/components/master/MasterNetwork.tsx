@@ -20,6 +20,7 @@ import {
 import { MasterBusiness, MasterUser } from '../../types/master';
 import { MasterBusinessDetailModal } from './MasterBusinessDetailModal';
 import { MasterUserDetailModal } from './MasterUserDetailModal';
+import { MasterSignupLinkCard } from './MasterSignupLinkCard';
 
 interface MasterNetworkProps {
   businesses: MasterBusiness[];
@@ -169,6 +170,13 @@ export const MasterNetwork: React.FC<MasterNetworkProps> = ({
           </button>
         </div>
       </div>
+
+      {/* ============================================================ */}
+      {/* CARD PERMANENTE: LINK DE CADASTRO DA PLATAFORMA (ETAPA 6)   */}
+      {/* Exibido de forma permanente, independente de haver 0 ou 100 */}
+      {/* barbearias cadastradas na rede.                             */}
+      {/* ============================================================ */}
+      <MasterSignupLinkCard />
 
       {/* ============================================================ */}
       {/* PERSPECTIVA 1: BARBEARIAS                                   */}

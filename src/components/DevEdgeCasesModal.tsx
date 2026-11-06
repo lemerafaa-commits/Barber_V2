@@ -127,7 +127,7 @@ export const DevEdgeCasesModal: React.FC<DevEdgeCasesModalProps> = ({
                 <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
                   Navegar entre Áreas (Ambiente de Testes)
                 </p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -141,6 +141,20 @@ export const DevEdgeCasesModal: React.FC<DevEdgeCasesModalProps> = ({
                     }`}
                   >
                     / (Cliente)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigateTo('/cadastro');
+                      setIsOpen(false);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-colors ${
+                      currentPath?.startsWith('/cadastro')
+                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                    }`}
+                  >
+                    /cadastro
                   </button>
                   <button
                     type="button"

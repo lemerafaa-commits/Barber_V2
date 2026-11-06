@@ -5,9 +5,14 @@ import { signInAdmin } from '../../services/firebase/auth';
 interface AdminLoginProps {
   onLoginSuccess?: () => void;
   onGoToPublicPage?: () => void;
+  onGoToSignup?: () => void;
 }
 
-export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onGoToPublicPage }) => {
+export const AdminLogin: React.FC<AdminLoginProps> = ({
+  onLoginSuccess,
+  onGoToPublicPage,
+  onGoToSignup,
+}) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -134,18 +139,32 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onGoToPu
             </button>
           </form>
 
-          {onGoToPublicPage && (
-            <div className="mt-6 pt-5 border-t border-zinc-800/80 text-center">
-              <button
-                type="button"
-                onClick={onGoToPublicPage}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Voltar para o agendamento público</span>
-              </button>
-            </div>
-          )}
+          <div className="mt-6 pt-5 border-t border-zinc-800/80 space-y-3 text-center">
+            {onGoToSignup && (
+              <div>
+                <button
+                  type="button"
+                  onClick={onGoToSignup}
+                  className="text-xs text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Ainda não tem conta? <span className="font-semibold text-amber-400 underline underline-offset-2">Criar barbearia</span>
+                </button>
+              </div>
+            )}
+
+            {onGoToPublicPage && (
+              <div>
+                <button
+                  type="button"
+                  onClick={onGoToPublicPage}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Voltar para o agendamento público</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
