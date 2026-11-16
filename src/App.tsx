@@ -208,8 +208,8 @@ export default function App() {
         setIsAdminAuthChecking(true);
         try {
           const [masterAuth, adminIdentity] = await Promise.all([
-            isAuthorizedMasterUser(user),
-            verifyAdminPrivilege(user),
+            isAuthorizedMasterUser(user, true),
+            verifyAdminPrivilege(user, true),
           ]);
           if (isSubscribed) {
             setIsMasterAuthorized(masterAuth);

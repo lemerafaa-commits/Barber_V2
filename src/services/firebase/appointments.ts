@@ -302,8 +302,8 @@ export async function getFirestoreAppointmentsForAdmin(
       return a.time.localeCompare(b.time);
     });
   } catch (error) {
-    console.warn('[Firestore] Consulta de agendamentos do admin inacessível no momento.', error);
-    return [];
+    console.error('[Firestore] Erro ao consultar agendamentos do admin:', error);
+    throw error;
   }
 }
 

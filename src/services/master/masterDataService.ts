@@ -40,13 +40,61 @@ export class MasterDataService {
   private cachedRealData: MasterJoaoBarberRealResponse | null = null;
   private lastFetchTime = 0;
 
+  private cachedNetworkData: { businesses: MasterBusiness[]; users: MasterUser[] } | null = null;
+  private lastNetworkFetchTime = 0;
+
   clearCache(): void {
     this.cachedRealData = null;
+    this.cachedNetworkData = null;
     this.lastFetchTime = 0;
+    this.lastNetworkFetchTime = 0;
   }
 
   getSyncState(): MasterApiSyncState {
     return { ...this.syncState };
+  }
+
+  /**
+   * Consulta a API server-side autoritativa GET /api/master/network
+   * para listar todos os negócios e usuários cadastrados no Firestore.
+   */
+  async getMasterNetworkData(forceRefresh = false): Promise<{ businesses: MasterBusiness[]; users: MasterUser[] } | null> {
+    const now = Date.now();
+    if (!forceRefresh && this.cachedNetworkData && now - this.lastNetworkFetchTime < 10000) {
+      return this.cachedNetworkData;
+    }
+
+    if (!isFirebaseConfigured || !auth || !auth.currentUser) {
+      return null;
+    }
+
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/master/network', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`[MasterDataService] Falha ao consultar /api/master/network: status ${response.status}`);
+        return null;
+      }
+
+      const data = await response.json();
+      if (data.success && Array.isArray(data.businesses)) {
+        this.cachedNetworkData = {
+          businesses: data.businesses,
+          users: Array.isArray(data.users) ? data.users : [],
+        };
+        this.lastNetworkFetchTime = Date.now();
+        return this.cachedNetworkData;
+      }
+    } catch (err) {
+      console.warn('[MasterDataService] Exceção ao consultar /api/master/network:', err);
+    }
+    return null;
   }
 
   /**
@@ -131,7 +179,14 @@ export class MasterDataService {
   }
 
   async getPlatformMetrics(forceRefresh = false): Promise<PlatformMetrics> {
-    const realData = await this.getJoaoBarberRealData(forceRefresh);
+    const [realData, networkData] = await Promise.all([
+      this.getJoaoBarberRealData(forceRefresh),
+      this.getMasterNetworkData(forceRefresh),
+    ]);
+
+    const businessesCount = networkData?.businesses?.length || (realData && realData.success ? 1 : 0);
+    const activeBusinessesCount = networkData?.businesses?.filter((b) => b.status === 'active').length || (realData && realData.success ? 1 : 0);
+    const usersCount = networkData?.users?.length || 0;
 
     if (realData && realData.success && realData.summary) {
       const totalAppointments = realData.summary.totalAppointments || 0;
@@ -139,61 +194,64 @@ export class MasterDataService {
       const avgTicket = totalAppointments > 0 ? revenue / totalAppointments : 0.0;
 
       return {
-        totalBusinesses: 1,
-        activeBusinesses: 1,
+        totalBusinesses: businessesCount,
+        activeBusinesses: activeBusinessesCount,
         trialBusinesses: 0,
         suspendedBusinesses: 0,
         totalAppointments,
         appointmentsThisMonth: totalAppointments,
-        platformRevenueMRR: 0.0, // R$ 0,00 real: faturamento SaaS não possui gateway integrado nesta etapa
-        totalPlatformUsers: 0,
+        platformRevenueMRR: 0.0,
+        totalPlatformUsers: usersCount,
         averageTicket: Number(avgTicket.toFixed(2)),
         growthRatePercent: 0.0,
       };
     }
 
-    // Se a consulta falhar ou não houver dados, retorna métricas neutras zeradas
     return {
-      totalBusinesses: 0,
-      activeBusinesses: 0,
+      totalBusinesses: businessesCount,
+      activeBusinesses: activeBusinessesCount,
       trialBusinesses: 0,
       suspendedBusinesses: 0,
       totalAppointments: 0,
       appointmentsThisMonth: 0,
       platformRevenueMRR: 0.0,
-      totalPlatformUsers: 0,
+      totalPlatformUsers: usersCount,
       averageTicket: 0.0,
       growthRatePercent: 0.0,
     };
   }
 
   async getRetentionMetrics(): Promise<RetentionMetrics> {
-    const realData = await this.getJoaoBarberRealData();
-    const hasBusiness = realData && realData.success;
+    const networkData = await this.getMasterNetworkData();
+    const count = networkData?.businesses?.length || 1;
 
     return {
-      newBusinesses: hasBusiness ? 1 : 0,
+      newBusinesses: count,
       churnedBusinesses: 0,
-      netGrowth: hasBusiness ? 1 : 0,
+      netGrowth: count,
       churnRatePercent: 0.0,
       lostMRR: 0.0,
-      periodLabel: 'Histórico inicial',
+      periodLabel: 'Histórico consolidado',
     };
   }
 
   async getMonthlyCohorts(): Promise<MonthlyCohortDataPoint[]> {
-    // Sem histórico de múltiplos meses e sem gateway, retorna lista vazia honesta
     return [];
   }
 
   /**
-   * Retorna apenas negócios reais encontrados na fonte persistida do Firestore.
-   * Não concatena barbearias fictícias.
+   * Retorna os negócios reais encontrados no Firestore.
+   * Consulta a API /api/master/network e complementa com dados operacionais.
    */
   async getBusinesses(forceRefresh = false): Promise<MasterBusiness[]> {
     try {
-      const realData = await this.getJoaoBarberRealData(forceRefresh);
+      const networkData = await this.getMasterNetworkData(forceRefresh);
+      if (networkData && Array.isArray(networkData.businesses) && networkData.businesses.length > 0) {
+        return networkData.businesses;
+      }
 
+      // Fallback seguro de compatibilidade com a barbearia canônica caso a rede retorne vazia
+      const realData = await this.getJoaoBarberRealData(forceRefresh);
       if (realData && realData.success) {
         const prof = realData.profile;
         const joaoBusiness: MasterBusiness = {
@@ -220,7 +278,6 @@ export class MasterDataService {
             lastSyncedAt: realData.timestamp,
           },
         };
-
         return [joaoBusiness];
       }
     } catch (err) {
@@ -237,7 +294,7 @@ export class MasterDataService {
   }
 
   /**
-   * Obtém os profissionais reais cadastrados para o negócio canônico.
+   * Obtém os profissionais reais cadastrados para o negócio.
    */
   async getBusinessProfessionals(businessIdOrSlug: string): Promise<MasterProfessional[]> {
     if (businessIdOrSlug === 'joao-barber' || businessIdOrSlug === 'biz_joao_barber') {
@@ -250,11 +307,17 @@ export class MasterDataService {
   }
 
   /**
-   * Sem uma integração segura de listagem administrativa do Firebase Auth,
-   * retorna lista vazia para evitar exibir mocks e para não tratar profissionais
-   * como contas de acesso à plataforma.
+   * Retorna os usuários administradores e operadores reais da rede.
    */
-  async getUsers(): Promise<MasterUser[]> {
+  async getUsers(forceRefresh = false): Promise<MasterUser[]> {
+    try {
+      const networkData = await this.getMasterNetworkData(forceRefresh);
+      if (networkData && Array.isArray(networkData.users)) {
+        return networkData.users;
+      }
+    } catch (err) {
+      console.error('[MasterDataService] Erro ao carregar usuários:', err);
+    }
     return [];
   }
 

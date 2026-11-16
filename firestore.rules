@@ -15,13 +15,18 @@ service cloud.firestore {
         && ('master' in request.auth.token && request.auth.token.master == true);
     }
 
-    function isAdminForBusiness(targetBusinessId) {
+    function isBusinessAdminFor(targetBusinessId) {
       return isAuthenticated() && (
         isMaster() || (
-          'role' in request.auth.token && request.auth.token.role == 'admin' &&
+          'role' in request.auth.token &&
+          (request.auth.token.role == 'admin' || request.auth.token.role == 'business_admin') &&
           'businessId' in request.auth.token && request.auth.token.businessId == targetBusinessId
         )
       );
+    }
+
+    function isAdminForBusiness(targetBusinessId) {
+      return isBusinessAdminFor(targetBusinessId);
     }
 
     // =========================================================================
@@ -87,7 +92,7 @@ service cloud.firestore {
     // COLEÇÃO: busy_slots (Grade de Disponibilidade Anônima - Zero PII)
     // =========================================================================
     match /busy_slots/{slotId} {
-      // Leitura pública necessária para cálculo dinâmico de horários livres no fluxo de agendamento
+      // Leitura pública necessária para cálculo dinâmico de horários livres no fluxo de agendamento (Zero PII)
       allow read: if true;
 
       // Criação direta pelo cliente proibida (gerenciada exclusivamente pelo backend transacional)
@@ -95,7 +100,7 @@ service cloud.firestore {
 
       // Atualização permitida apenas para o administrador autorizado da empresa ou Master,
       // exclusivamente na conclusão atômica do atendimento ('confirmed' -> 'completed')
-      allow update: if isAdminForBusiness(resource.data.businessId)
+      allow update: if isBusinessAdminFor(resource.data.businessId)
         && request.resource.data.businessId == resource.data.businessId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         && resource.data.status == 'confirmed'
@@ -109,16 +114,16 @@ service cloud.firestore {
     // COLEÇÃO: appointments (Registros Completos com Dados Pessoais do Cliente)
     // =========================================================================
     match /appointments/{appointmentId} {
-      // Leitura restrita exclusivamente ao administrador autorizado da respectiva empresa ou Master
-      allow read: if isAdminForBusiness(resource.data.businessId);
+      // Leitura restrita exclusivamente ao administrador autorizado da respectiva empresa ou Master (Proteção PII)
+      allow read: if isBusinessAdminFor(resource.data.businessId);
 
-      // Criação direta pelo cliente estritamente proibida (criação via /api/bookings/create)
+      // Criação direta pelo cliente estritamente proibida (criação via /api/bookings/create com lock e idempotência)
       allow create: if false;
 
       // Atualização permitida exclusivamente para o administrador da empresa ou Master
       // registrar a conclusão do atendimento ('confirmed' -> 'completed'),
       // garantindo que nenhum dado do cliente ou de negócio seja alterado
-      allow update: if isAdminForBusiness(resource.data.businessId)
+      allow update: if isBusinessAdminFor(resource.data.businessId)
         && request.resource.data.businessId == resource.data.businessId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         && resource.data.status == 'confirmed'
@@ -135,8 +140,11 @@ service cloud.firestore {
       // Leitura pública permitida para apresentação do estabelecimento e horários
       allow read: if true;
 
+      // Criação direta pelo cliente proibida (provisionamento gerenciado exclusivamente pelo backend)
+      allow create: if false;
+
       // Gravação restrita exclusivamente ao administrador autenticado da empresa ou Master
-      allow create, update: if isAdminForBusiness(businessId)
+      allow update: if isBusinessAdminFor(businessId)
         && request.resource.data.businessId == businessId
         && isValidBusinessProfile(request.resource.data);
 
@@ -148,15 +156,16 @@ service cloud.firestore {
     // COLEÇÃO: services (Catálogo de Serviços)
     // =========================================================================
     match /services/{serviceId} {
-      // Leitura pública permitida para consulta do menu de serviços
+      // Leitura pública permitida para consulta do cardápio/catálogo de serviços
       allow read: if true;
 
       // Criação restrita ao administrador da empresa indicada no documento ou Master
-      allow create: if isAdminForBusiness(request.resource.data.businessId)
+      allow create: if isBusinessAdminFor(request.resource.data.businessId)
         && isValidService(request.resource.data);
 
       // Atualização restrita ao administrador da empresa ou Master, mantendo businessId imutável
-      allow update: if isAdminForBusiness(resource.data.businessId)
+      allow update: if isBusinessAdminFor(resource.data.businessId)
+        && request.resource.data.businessId == resource.data.businessId
         && isValidServiceUpdate(resource.data, request.resource.data);
 
       // Exclusão física proibida (soft-delete via active: false)
@@ -167,19 +176,54 @@ service cloud.firestore {
     // COLEÇÃO: professionals (Equipe e Profissionais)
     // =========================================================================
     match /professionals/{professionalId} {
-      // Leitura restrita ao administrador autenticado da empresa titular ou Master
-      allow read: if isAdminForBusiness(resource.data.businessId);
+      // Leitura restrita ao administrador autenticado da empresa titular ou Master (público consome /api/public/catalog)
+      allow read: if isBusinessAdminFor(resource.data.businessId);
 
       // Criação restrita ao administrador da empresa informada ou Master
-      allow create: if isAdminForBusiness(request.resource.data.businessId)
+      allow create: if isBusinessAdminFor(request.resource.data.businessId)
         && isValidProfessional(request.resource.data);
 
       // Atualização restrita ao administrador da empresa ou Master, mantendo businessId imutável
-      allow update: if isAdminForBusiness(resource.data.businessId)
+      allow update: if isBusinessAdminFor(resource.data.businessId)
+        && request.resource.data.businessId == resource.data.businessId
         && isValidProfessionalUpdate(resource.data, request.resource.data);
 
       // Exclusão física proibida (soft-delete via status: 'inactive')
       allow delete: if false;
+    }
+
+    // =========================================================================
+    // COLEÇÃO: users (Perfis de Administradores e Operadores)
+    // =========================================================================
+    match /users/{userId} {
+      // O próprio usuário autenticado pode ler seu documento, ou Master pode ler qualquer usuário
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isMaster());
+
+      // Atualização permitida para o próprio usuário preservando businessId e role imutáveis, ou Master
+      allow update: if isAuthenticated() && (
+        isMaster() || (
+          request.auth.uid == userId &&
+          request.resource.data.businessId == resource.data.businessId &&
+          request.resource.data.role == resource.data.role
+        )
+      );
+
+      // Criação e exclusão restritas exclusivamente ao backend (Provisioning Core / Admin SDK)
+      allow create, delete: if false;
+    }
+
+    // =========================================================================
+    // COLEÇÃO: daily_schedules (Controle de Concorrência Exclusivo do Backend)
+    // =========================================================================
+    match /daily_schedules/{scheduleId} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // COLEÇÃO: idempotency_keys (Travas de Idempotência Exclusivas do Backend)
+    // =========================================================================
+    match /idempotency_keys/{keyId} {
+      allow read, write: if false;
     }
 
     // =========================================================================

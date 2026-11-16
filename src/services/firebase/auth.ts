@@ -121,7 +121,7 @@ export async function verifyAdminPrivilege(
     const role = typeof claims.role === 'string' ? claims.role.trim() : '';
     const bId = typeof claims.businessId === 'string' ? claims.businessId.trim() : '';
 
-    if (role === 'admin' && bId.length > 0) {
+    if ((role === 'admin' || role === 'business_admin') && bId.length > 0) {
       isAdmin = true;
       businessId = bId;
     }

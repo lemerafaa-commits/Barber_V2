@@ -17,6 +17,7 @@ import {
   Layers,
   LogOut,
   Users,
+  AlertCircle,
 } from 'lucide-react';
 import { AdminAppointment, AdminService } from '../../types/admin';
 import { MOCK_ADMIN_APPOINTMENTS } from '../../data/adminMockData';
@@ -92,9 +93,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Main space navigation: Agendamentos vs Meus Serviços vs Minha Barbearia vs Equipe
   const [mainSpace, setMainSpace] = useState<'agendamentos' | 'meus-servicos' | 'minha-barbearia' | 'equipe'>('agendamentos');
 
-  // Services state initialized with domain mock services, populated from Firestore
-  const [services, setServices] = useState<AdminService[]>(INITIAL_ADMIN_SERVICES);
+  // Services state initialized with empty list if Firebase is configured, populated from Firestore
+  const [services, setServices] = useState<AdminService[]>(() =>
+    !isFirebaseConfigured ? INITIAL_ADMIN_SERVICES : []
+  );
   const [isLoadingServices, setIsLoadingServices] = useState(false);
+  const [servicesError, setServicesError] = useState<string | null>(null);
+  const [appointmentsError, setAppointmentsError] = useState<string | null>(null);
 
   // Sub tab for Agendamentos: "operacao" (Hoje / foco operacional) vs "calendario" (Explorar datas)
   const [activeTab, setActiveTab] = useState<'operacao' | 'calendario'>('operacao');
@@ -124,13 +129,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const fetchServices = async () => {
     if (!isFirebaseConfigured) return;
     setIsLoadingServices(true);
+    setServicesError(null);
     try {
       const firestoreServices = await getFirestoreServices(effectiveBusinessId);
-      if (firestoreServices && firestoreServices.length > 0) {
-        setServices(firestoreServices);
-      }
-    } catch (err) {
+      setServices(firestoreServices);
+    } catch (err: any) {
       console.warn('Erro ao carregar serviços do Firestore:', err);
+      setServicesError('Não foi possível sincronizar os serviços no momento.');
     } finally {
       setIsLoadingServices(false);
     }
@@ -142,24 +147,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [effectiveBusinessId]);
 
   // Load real appointments from Firestore
-  useEffect(() => {
-    async function fetchAppointments() {
-      if (!isFirebaseConfigured) {
-        setAppointments(MOCK_ADMIN_APPOINTMENTS);
-        setIsLoadingAppointments(false);
-        return;
-      }
-      setIsLoadingAppointments(true);
-      try {
-        const realAppointments = await getFirestoreAppointmentsForAdmin(effectiveBusinessId);
-        setAppointments(realAppointments);
-      } catch (err) {
-        console.warn('Agendamentos remotos inacessíveis (regras ou conexão):', err);
-      } finally {
-        setIsLoadingAppointments(false);
-      }
+  const fetchAppointments = async () => {
+    if (!isFirebaseConfigured) {
+      setAppointments(MOCK_ADMIN_APPOINTMENTS);
+      setIsLoadingAppointments(false);
+      return;
     }
+    setIsLoadingAppointments(true);
+    setAppointmentsError(null);
+    try {
+      const realAppointments = await getFirestoreAppointmentsForAdmin(effectiveBusinessId);
+      setAppointments(realAppointments);
+    } catch (err: any) {
+      console.warn('Agendamentos remotos inacessíveis (regras ou conexão):', err);
+      setAppointmentsError('Não foi possível carregar os agendamentos no momento.');
+    } finally {
+      setIsLoadingAppointments(false);
+    }
+  };
 
+  useEffect(() => {
     fetchAppointments();
   }, [effectiveBusinessId]);
 
@@ -482,6 +489,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             businessId={effectiveBusinessId}
             onServicesChange={setServices}
             isLoading={isLoadingServices}
+            error={servicesError}
             onRefresh={fetchServices}
           />
         ) : mainSpace === 'minha-barbearia' ? (
@@ -670,6 +678,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <p className="text-sm font-semibold text-zinc-300">
                     Carregando agendamentos do Firestore...
                   </p>
+                </div>
+              ) : appointmentsError && appointments.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-center space-y-3">
+                  <AlertCircle className="w-5 h-5 text-rose-400 mx-auto" />
+                  <p className="text-xs sm:text-sm font-semibold text-rose-300">{appointmentsError}</p>
+                  <button
+                    type="button"
+                    onClick={fetchAppointments}
+                    className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-200 transition-colors cursor-pointer"
+                  >
+                    Tentar Novamente
+                  </button>
                 </div>
               ) : activeDateAppointments.length > 0 ? (
                 <div className="space-y-2.5">

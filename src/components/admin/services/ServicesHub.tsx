@@ -32,6 +32,7 @@ interface ServicesHubProps {
   businessId?: string;
   onServicesChange: (updatedServices: AdminService[]) => void;
   isLoading?: boolean;
+  error?: string | null;
   onRefresh?: () => Promise<void>;
 }
 
@@ -40,6 +41,7 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
   businessId,
   onServicesChange,
   isLoading = false,
+  error = null,
   onRefresh,
 }) => {
   // Modal states
@@ -257,6 +259,25 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
         <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 flex items-center justify-center gap-3 text-zinc-400 text-xs">
           <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
           <span>Sincronizando serviços com Cloud Firestore...</span>
+        </div>
+      )}
+
+      {/* Error state banner */}
+      {error && !isLoading && (
+        <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between gap-3 text-rose-300 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{error}</span>
+          </div>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={() => onRefresh()}
+              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-colors cursor-pointer shrink-0"
+            >
+              Tentar Novamente
+            </button>
+          )}
         </div>
       )}
 

@@ -233,7 +233,7 @@ export default async function handler(req: any, res: any) {
     const roleClaim = typeof tokenPayload?.role === 'string' ? tokenPayload.role.trim() : '';
     const businessIdClaim = typeof tokenPayload?.businessId === 'string' ? tokenPayload.businessId.trim() : '';
 
-    if (roleClaim !== 'admin') {
+    if (roleClaim !== 'admin' && roleClaim !== 'business_admin') {
       return sendResponse(res, 403, {
         success: false,
         error: 'FORBIDDEN',

@@ -29,7 +29,15 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
     setErrorMessage(null);
 
     try {
-      await signInAdmin(email, password);
+      const user = await signInAdmin(email, password);
+      // Força a obtenção de token fresco com as Custom Claims recém-atribuídas no provisioning
+      if (user) {
+        try {
+          await user.getIdToken(true);
+        } catch (refreshErr) {
+          console.warn('[AdminLogin] Aviso ao forçar refresh de token pós-login:', refreshErr);
+        }
+      }
       if (onLoginSuccess) {
         onLoginSuccess();
       }
