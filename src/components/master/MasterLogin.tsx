@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Lock, Mail, AlertCircle, Loader2, ArrowLeft, Shield, Store } from 'lucide-react';
-import { signInAdmin } from '../../services/firebase/auth';
-import { isAuthorizedMasterUser } from '../../services/master/masterAuthService';
+import { signInMaster, isAuthorizedMasterUser } from '../../services/master/masterAuthService';
 
 interface MasterLoginProps {
   onLoginSuccess?: () => void;
@@ -30,7 +29,7 @@ export const MasterLogin: React.FC<MasterLoginProps> = ({
     setErrorMessage(null);
 
     try {
-      const user = await signInAdmin(email, password);
+      const user = await signInMaster(email, password);
       const isAuthorized = await isAuthorizedMasterUser(user, true);
 
       if (!isAuthorized) {

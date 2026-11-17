@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, Edit3, Scissors, Sparkles, Check, Power } from 'lucide-react';
+import { Clock, Edit3, Scissors, Sparkles, Power, Loader2 } from 'lucide-react';
 import { AdminService } from '../../../types/admin';
 import { formatDurationLabel, formatPriceBRL } from '../../../services/adminServiceDomain';
 
@@ -7,12 +7,14 @@ interface ServiceCardProps {
   service: AdminService;
   onEdit: (service: AdminService) => void;
   onToggleActive: (id: string) => void;
+  isToggling?: boolean;
 }
 
 export const ServiceCard: React.FC<ServiceCardProps> = ({
   service,
   onEdit,
   onToggleActive,
+  isToggling = false,
 }) => {
   const isCabelo = service.categoryId === 'cabelo';
   const isBarba = service.categoryId === 'barba';
@@ -102,15 +104,22 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           <button
             type="button"
             onClick={() => onToggleActive(service.id)}
+            disabled={isToggling}
             title={service.active ? 'Desativar serviço' : 'Ativar serviço'}
-            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border disabled:opacity-50 disabled:cursor-not-allowed ${
               service.active
                 ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60 hover:text-white'
                 : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
             }`}
           >
-            <Power className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">{service.active ? 'Desativar' : 'Ativar'}</span>
+            {isToggling ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Power className="w-3.5 h-3.5" />
+            )}
+            <span className="hidden xs:inline">
+              {isToggling ? 'Atualizando...' : service.active ? 'Desativar' : 'Ativar'}
+            </span>
           </button>
 
           {/* Edit Button */}

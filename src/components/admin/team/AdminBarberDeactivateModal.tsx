@@ -1,12 +1,13 @@
 import React from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { Barber } from '../../../types/admin';
 
 interface AdminBarberDeactivateModalProps {
   barber: Barber;
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void> | void;
+  isProcessing?: boolean;
 }
 
 export const AdminBarberDeactivateModal: React.FC<AdminBarberDeactivateModalProps> = ({
@@ -14,6 +15,7 @@ export const AdminBarberDeactivateModal: React.FC<AdminBarberDeactivateModalProp
   isOpen,
   onClose,
   onConfirm,
+  isProcessing = false,
 }) => {
   if (!isOpen) return null;
 
@@ -31,7 +33,8 @@ export const AdminBarberDeactivateModal: React.FC<AdminBarberDeactivateModalProp
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            disabled={isProcessing}
+            className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <X className="w-5 h-5" />
           </button>
@@ -51,19 +54,21 @@ export const AdminBarberDeactivateModal: React.FC<AdminBarberDeactivateModalProp
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+            disabled={isProcessing}
+            className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Cancelar
           </button>
           <button
             type="button"
-            onClick={() => {
-              onConfirm();
-              onClose();
+            disabled={isProcessing}
+            onClick={async () => {
+              await onConfirm();
             }}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white transition-colors shadow-sm shadow-rose-500/20 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white transition-colors shadow-sm shadow-rose-500/20 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Desativar
+            {isProcessing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            <span>{isProcessing ? 'Desativando...' : 'Desativar'}</span>
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Phone,
@@ -7,6 +7,7 @@ import {
   Save,
 } from 'lucide-react';
 import { BusinessProfile } from '../../../types/businessProfile';
+import { extractFirestoreErrorMessage } from '../../../services/firebase/config';
 
 interface ContactSectionProps {
   profile: BusinessProfile;
@@ -26,6 +27,11 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    setWhatsapp(profile.whatsapp);
+    setInstagram(profile.instagram);
+  }, [profile.whatsapp, profile.instagram]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
@@ -40,10 +46,12 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
         setSaveSuccessMessage(null);
       }, 4000);
     } catch (err: any) {
-      setSaveErrorMessage('Erro ao salvar alterações. Tente novamente.');
+      setSaveErrorMessage(
+        extractFirestoreErrorMessage(err, 'Erro ao salvar alterações. Tente novamente.')
+      );
       setTimeout(() => {
         setSaveErrorMessage(null);
-      }, 5000);
+      }, 6000);
     }
   };
 

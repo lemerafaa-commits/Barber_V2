@@ -25,10 +25,11 @@ export async function loadBusinessProfile(
  */
 export async function saveBusinessProfile(
   updates: Partial<BusinessProfile>,
-  businessId = CANONICAL_BUSINESS_ID
+  businessId = CANONICAL_BUSINESS_ID,
+  currentProfile?: BusinessProfile
 ): Promise<{ success: boolean; message: string; data: BusinessProfile }> {
   try {
-    const updatedProfile = await saveFirestoreBusinessProfile(businessId, updates);
+    const updatedProfile = await saveFirestoreBusinessProfile(businessId, updates, currentProfile);
     return {
       success: true,
       message: 'Alterações salvas com sucesso no Firestore.',

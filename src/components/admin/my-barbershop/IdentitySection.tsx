@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Store,
@@ -7,6 +7,7 @@ import {
   Save,
 } from 'lucide-react';
 import { BusinessProfile } from '../../../types/businessProfile';
+import { extractFirestoreErrorMessage } from '../../../services/firebase/config';
 
 interface IdentitySectionProps {
   profile: BusinessProfile;
@@ -27,6 +28,12 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    setName(profile.name);
+    setDescription(profile.description);
+    setLogoUrl(profile.logoUrl);
+  }, [profile.name, profile.description, profile.logoUrl]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
@@ -42,10 +49,12 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
         setSaveSuccessMessage(null);
       }, 4000);
     } catch (err: any) {
-      setSaveErrorMessage('Erro ao salvar alterações. Tente novamente.');
+      setSaveErrorMessage(
+        extractFirestoreErrorMessage(err, 'Erro ao salvar alterações. Tente novamente.')
+      );
       setTimeout(() => {
         setSaveErrorMessage(null);
-      }, 5000);
+      }, 6000);
     }
   };
 

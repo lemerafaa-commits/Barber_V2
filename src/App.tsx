@@ -38,7 +38,12 @@ const PublicSignupPage = React.lazy(() =>
 );
 import { User } from 'firebase/auth';
 import { subscribeToAuthChanges, signOutAdmin, verifyAdminPrivilege } from './services/firebase/auth';
-import { isAuthorizedMasterUser } from './services/master/masterAuthService';
+import {
+  isAuthorizedMasterUser,
+  subscribeToMasterAuthChanges,
+  signOutMaster,
+} from './services/master/masterAuthService';
+import { masterDataService } from './services/master/masterDataService';
 import { isFirebaseConfigured } from './services/firebase/config';
 import { Loader2 } from 'lucide-react';
 
@@ -179,6 +184,10 @@ export default function App() {
     }
   }
   const isSlugRoute = Boolean(slugMatch);
+  const isPublicBookingRoute =
+    !currentPath.startsWith('/admin') &&
+    !currentPath.startsWith('/master') &&
+    !currentPath.startsWith('/cadastro');
 
   // Status de carregamento e integridade da rota
   const [routeStatus, setRouteStatus] = useState<
@@ -187,56 +196,88 @@ export default function App() {
   const [routeErrorMessage, setRouteErrorMessage] = useState<string | null>(null);
   const [activeBusinessId, setActiveBusinessId] = useState<string>('joao-barber');
 
-  // Firebase Auth state for protected admin and master access
+  // Firebase Auth state isolado para Admin (instância padrão)
   const [adminUser, setAdminUser] = useState<User | null>(null);
-  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
-  const [isMasterAuthorized, setIsMasterAuthorized] = useState<boolean>(false);
-  const [isMasterAuthChecking, setIsMasterAuthChecking] = useState<boolean>(true);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState<boolean>(false);
+  const [isAdminUserMaster, setIsAdminUserMaster] = useState<boolean>(false);
   const [isAdminAuthChecking, setIsAdminAuthChecking] = useState<boolean>(true);
   const [adminBusinessId, setAdminBusinessId] = useState<string | null>(null);
+
+  // Firebase Auth state isolado para Master (instância secundária 'master-app')
+  const [masterUser, setMasterUser] = useState<User | null>(null);
+  const [isMasterAuthorized, setIsMasterAuthorized] = useState<boolean>(false);
+  const [isMasterAuthChecking, setIsMasterAuthChecking] = useState<boolean>(true);
 
   useEffect(() => {
     let isSubscribed = true;
 
     const unsubscribe = subscribeToAuthChanges(async (user) => {
+      if (!isSubscribed) return;
       setAdminUser(user);
-      setIsAuthChecking(false);
 
       if (user) {
-        setIsMasterAuthChecking(true);
         setIsAdminAuthChecking(true);
         try {
-          const [masterAuth, adminIdentity] = await Promise.all([
-            isAuthorizedMasterUser(user, true),
-            verifyAdminPrivilege(user, true),
-          ]);
+          const adminIdentity = await verifyAdminPrivilege(user, true);
           if (isSubscribed) {
-            setIsMasterAuthorized(masterAuth);
             setIsAdminAuthorized(Boolean(adminIdentity?.isAdmin));
+            setIsAdminUserMaster(Boolean(adminIdentity?.claims?.master === true));
             setAdminBusinessId(adminIdentity?.businessId || null);
           }
         } catch (err) {
-          console.warn('[Auth] Falha ao verificar autorização do usuário:', err);
+          console.warn('[AdminAuth] Falha ao verificar autorização administrativa:', err);
           if (isSubscribed) {
-            setIsMasterAuthorized(false);
             setIsAdminAuthorized(false);
+            setIsAdminUserMaster(false);
             setAdminBusinessId(null);
           }
         } finally {
           if (isSubscribed) {
-            setIsMasterAuthChecking(false);
             setIsAdminAuthChecking(false);
           }
         }
       } else {
-        if (isSubscribed) {
-          setIsMasterAuthorized(false);
-          setIsMasterAuthChecking(false);
-          setIsAdminAuthorized(false);
-          setIsAdminAuthChecking(false);
-          setAdminBusinessId(null);
+        setIsAdminAuthorized(false);
+        setIsAdminUserMaster(false);
+        setAdminBusinessId(null);
+        setIsAdminAuthChecking(false);
+      }
+    });
+
+    return () => {
+      isSubscribed = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let isSubscribed = true;
+
+    const unsubscribe = subscribeToMasterAuthChanges(async (user) => {
+      if (!isSubscribed) return;
+      setMasterUser(user);
+
+      if (user) {
+        setIsMasterAuthChecking(true);
+        try {
+          const masterAuthResult = await isAuthorizedMasterUser(user, true);
+          if (isSubscribed) {
+            setIsMasterAuthorized(masterAuthResult);
+          }
+        } catch (err) {
+          console.warn('[MasterAuth] Falha ao verificar autorização Master:', err);
+          if (isSubscribed) {
+            setIsMasterAuthorized(false);
+          }
+        } finally {
+          if (isSubscribed) {
+            setIsMasterAuthChecking(false);
+          }
         }
+      } else {
+        masterDataService.clearCache();
+        setIsMasterAuthorized(false);
+        setIsMasterAuthChecking(false);
       }
     });
 
@@ -527,13 +568,14 @@ export default function App() {
   // Available days (next 14 days)
   const upcomingDays = useMemo(() => getUpcomingDays(14), []);
 
-  // Set default date to first available day if none selected
+  // Set default date to first available day if none selected (somente em rotas públicas)
   useEffect(() => {
+    if (!isPublicBookingRoute) return;
     if (!bookingState.selectedDate && upcomingDays.length > 0) {
       const firstAvail = upcomingDays.find((d) => d.isAvailable) || upcomingDays[0];
       setBookingState((prev) => ({ ...prev, selectedDate: firstAvail }));
     }
-  }, [upcomingDays, bookingState.selectedDate]);
+  }, [isPublicBookingRoute, upcomingDays, bookingState.selectedDate]);
 
   // Fetch Firestore appointments whenever selected date changes
   const fetchDayAppointments = async (dateStr: string) => {
@@ -552,12 +594,26 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!isPublicBookingRoute) {
+      setDayAppointments([]);
+      setIsLoadingTimeSlots(false);
+      return;
+    }
+    if (isSlugRoute && routeStatus !== 'success') {
+      return;
+    }
     if (bookingState.selectedDate) {
       fetchDayAppointments(bookingState.selectedDate.dateString);
     } else {
       setDayAppointments([]);
     }
-  }, [bookingState.selectedDate?.dateString, activeBusinessId]);
+  }, [
+    isPublicBookingRoute,
+    isSlugRoute,
+    routeStatus,
+    bookingState.selectedDate?.dateString,
+    activeBusinessId,
+  ]);
 
   // Total duration of all selected services
   const totalDurationMinutes = useMemo(() => {
@@ -779,7 +835,7 @@ export default function App() {
     // Quando o Firebase está configurado no ambiente (Produção / Staging),
     // o acesso é estritamente protegido pelo Firebase Authentication com Custom Claims (SEC-01).
     if (isFirebaseConfigured) {
-      if (isAuthChecking || isAdminAuthChecking) {
+      if (isAdminAuthChecking) {
         return (
           <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
@@ -811,8 +867,10 @@ export default function App() {
         );
       }
 
+      const validatedAdminBusinessId = typeof adminBusinessId === 'string' ? adminBusinessId.trim() : '';
+
       // Usuário autenticado, mas NÃO possui privilégios de Admin (role === 'admin' e businessId válido)
-      if (!isAdminAuthorized) {
+      if (!isAdminAuthorized || !validatedAdminBusinessId) {
         return (
           <ChunkErrorBoundary fallbackTitle="Erro ao carregar Módulo Administrativo" onGoHome={() => navigateTo('/')}>
             <React.Suspense
@@ -825,7 +883,7 @@ export default function App() {
             >
               <AdminAccessDenied
                 userEmail={adminUser.email}
-                isMaster={isMasterAuthorized}
+                isMaster={isAdminUserMaster}
                 onLogout={async () => {
                   try {
                     await signOutAdmin();
@@ -838,8 +896,10 @@ export default function App() {
                 onRefreshPermissions={async () => {
                   try {
                     const identity = await verifyAdminPrivilege(adminUser, true);
-                    const isAuth = Boolean(identity?.isAdmin);
+                    const hasValidBusiness = Boolean(identity?.businessId && identity.businessId.trim().length > 0);
+                    const isAuth = Boolean(identity?.isAdmin && hasValidBusiness);
                     setIsAdminAuthorized(isAuth);
+                    setIsAdminUserMaster(Boolean(identity?.claims?.master === true));
                     setAdminBusinessId(identity?.businessId || null);
                     return isAuth;
                   } catch (err) {
@@ -864,11 +924,9 @@ export default function App() {
             }
           >
             <AdminDashboard
-              businessId={adminBusinessId || 'joao-barber'}
+              businessId={validatedAdminBusinessId}
               onGoToPublicPage={() => {
-                if (adminBusinessId && adminBusinessId.trim().length > 0) {
-                  navigateTo(`/b/${adminBusinessId.trim()}`);
-                }
+                navigateTo(`/b/${validatedAdminBusinessId}`);
               }}
               onLogout={() => {
                 // Handled via onAuthStateChanged, user state resets to null
@@ -918,7 +976,7 @@ export default function App() {
     // Quando o Firebase está configurado no ambiente (Produção / Staging),
     // o acesso ao SaaS Master é estritamente autenticado e autorizado.
     if (isFirebaseConfigured) {
-      if (isAuthChecking || isMasterAuthChecking) {
+      if (isMasterAuthChecking) {
         return (
           <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
@@ -927,8 +985,8 @@ export default function App() {
         );
       }
 
-      // Caso 1: Usuário não autenticado no Firebase Auth -> Exibe Login do Master
-      if (!adminUser) {
+      // Caso 1: Usuário não autenticado na instância Master -> Exibe Login do Master
+      if (!masterUser) {
         return (
           <ChunkErrorBoundary fallbackTitle="Erro ao carregar Login do Superadministrador" onGoHome={() => navigateTo('/')}>
             <React.Suspense
@@ -941,7 +999,7 @@ export default function App() {
             >
               <MasterLogin
                 onLoginSuccess={() => {
-                  // Transição automática disparada via onAuthStateChanged
+                  // Transição automática disparada via onAuthStateChanged de masterAuth
                 }}
                 onGoToPublicPage={() => navigateTo('/')}
                 onGoToAdminPage={() => navigateTo('/admin')}
@@ -964,10 +1022,10 @@ export default function App() {
               }
             >
               <MasterAccessDenied
-                userEmail={adminUser.email}
+                userEmail={masterUser.email}
                 onLogout={async () => {
                   try {
-                    await signOutAdmin();
+                    await signOutMaster();
                   } catch (e) {
                     console.error('[Master] Erro ao encerrar sessão:', e);
                   }
@@ -976,7 +1034,7 @@ export default function App() {
                 onGoToPublicPage={() => navigateTo('/')}
                 onRefreshPermissions={async () => {
                   try {
-                    const authorized = await isAuthorizedMasterUser(adminUser, true);
+                    const authorized = await isAuthorizedMasterUser(masterUser, true);
                     setIsMasterAuthorized(authorized);
                     return authorized;
                   } catch (err) {
@@ -1006,7 +1064,7 @@ export default function App() {
               onNavigateAdmin={() => navigateTo('/admin')}
               onLogout={async () => {
                 try {
-                  await signOutAdmin();
+                  await signOutMaster();
                 } catch (e) {
                   console.error('[Master] Erro ao encerrar sessão:', e);
                 }

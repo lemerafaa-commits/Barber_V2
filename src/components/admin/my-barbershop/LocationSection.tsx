@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   MapPin,
@@ -7,6 +7,7 @@ import {
   Save,
 } from 'lucide-react';
 import { BusinessProfile } from '../../../types/businessProfile';
+import { extractFirestoreErrorMessage } from '../../../services/firebase/config';
 
 interface LocationSectionProps {
   profile: BusinessProfile;
@@ -29,6 +30,20 @@ export const LocationSection: React.FC<LocationSectionProps> = ({
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    setStreet(profile.address.street);
+    setNumber(profile.address.number);
+    setNeighborhood(profile.address.neighborhood);
+    setCity(profile.address.city);
+    setState(profile.address.state);
+  }, [
+    profile.address.street,
+    profile.address.number,
+    profile.address.neighborhood,
+    profile.address.city,
+    profile.address.state,
+  ]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
@@ -48,10 +63,12 @@ export const LocationSection: React.FC<LocationSectionProps> = ({
         setSaveSuccessMessage(null);
       }, 4000);
     } catch (err: any) {
-      setSaveErrorMessage('Erro ao salvar alterações. Tente novamente.');
+      setSaveErrorMessage(
+        extractFirestoreErrorMessage(err, 'Erro ao salvar alterações. Tente novamente.')
+      );
       setTimeout(() => {
         setSaveErrorMessage(null);
-      }, 5000);
+      }, 6000);
     }
   };
 

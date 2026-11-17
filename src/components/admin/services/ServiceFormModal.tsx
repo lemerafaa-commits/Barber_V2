@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Scissors, Clock, DollarSign, Sparkles, Check, AlertCircle } from 'lucide-react';
+import { X, Scissors, Clock, Check, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { AdminService, ServiceCategoryId } from '../../../types/admin';
 import {
   DEFAULT_SERVICE_CATEGORIES,
@@ -16,9 +16,11 @@ interface ServiceFormModalProps {
     price: number;
     durationMinutes: number;
     active: boolean;
-  }) => void;
+  }) => Promise<void> | void;
   serviceToEdit?: AdminService | null;
   isSaving?: boolean;
+  errorMessage?: string | null;
+  isIndeterminate?: boolean;
 }
 
 const DURATION_PRESETS = [15, 20, 25, 30, 40, 50, 60, 75, 90];
@@ -29,6 +31,8 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
   onSave,
   serviceToEdit,
   isSaving = false,
+  errorMessage = null,
+  isIndeterminate = false,
 }) => {
   const isEditing = Boolean(serviceToEdit);
 
@@ -75,8 +79,9 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
     return isNaN(parsed) ? 0 : Math.round(parsed * 100) / 100;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
 
     const numericPrice = parsePrice(priceInput);
     const numericDuration = Number(durationMinutes);
@@ -84,6 +89,7 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
     const validation = validateServiceInput({
       name,
       categoryId,
+      description,
       price: numericPrice,
       durationMinutes: numericDuration,
     });
@@ -93,7 +99,7 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
       return;
     }
 
-    onSave({
+    await onSave({
       name: name.trim(),
       categoryId,
       description: description.trim(),
@@ -131,7 +137,8 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer"
+            disabled={isSaving}
+            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             title="Fechar"
           >
             <X className="w-5 h-5" />
@@ -140,6 +147,29 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
 
         {/* Modal Form Body */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1">
+          {errorMessage && (
+            <div
+              role="alert"
+              className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+                isIndeterminate
+                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+                  : 'bg-rose-500/10 border-rose-500/40 text-rose-200'
+              }`}
+            >
+              <AlertCircle
+                className={`w-4 h-4 shrink-0 mt-0.5 ${
+                  isIndeterminate ? 'text-amber-400' : 'text-rose-400'
+                }`}
+              />
+              <div className="space-y-1">
+                <span className="font-bold block">
+                  {isIndeterminate ? 'Confirmação pendente com o servidor' : 'Erro ao salvar serviço'}
+                </span>
+                <p className="leading-relaxed opacity-90">{errorMessage}</p>
+              </div>
+            </div>
+          )}
+
           {/* Nome do Serviço */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300 mb-1.5">
@@ -147,6 +177,7 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
             </label>
             <input
               type="text"
+              maxLength={100}
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
@@ -308,16 +339,35 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
 
           {/* Descrição */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300 mb-1.5">
-              Descrição / Detalhes <span className="text-zinc-500 text-[10px]">(Opcional)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
+                Descrição / Detalhes <span className="text-zinc-500 text-[10px]">(Opcional)</span>
+              </label>
+              <span className="text-[11px] text-zinc-500 font-mono">
+                {description.trim().length}/500
+              </span>
+            </div>
             <textarea
               rows={2}
+              maxLength={500}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (errors.description) setErrors((prev) => ({ ...prev, description: '' }));
+              }}
               placeholder="Ex: Corte completo com lavagem, alinhamento e finalização com pomada modeladora."
-              className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/80 focus:ring-1 focus:ring-amber-500/30 transition-all resize-none"
+              className={`w-full px-4 py-2.5 rounded-xl bg-zinc-900 border text-sm text-white placeholder-zinc-500 focus:outline-none transition-all resize-none ${
+                errors.description
+                  ? 'border-red-500/80 focus:border-red-500 ring-1 ring-red-500/30'
+                  : 'border-zinc-800 focus:border-amber-500/80 focus:ring-1 focus:ring-amber-500/30'
+              }`}
             />
+            {errors.description && (
+              <p className="text-xs text-red-400 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>{errors.description}</span>
+              </p>
+            )}
           </div>
 
           {/* Status Ativo / Inativo */}
@@ -354,7 +404,7 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="min-h-[44px] px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+              className="min-h-[44px] px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancelar
             </button>
@@ -362,10 +412,24 @@ export const ServiceFormModal: React.FC<ServiceFormModalProps> = ({
             <button
               type="submit"
               disabled={isSaving}
-              className="min-h-[44px] px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-amber-500/20 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+              className="min-h-[44px] px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-amber-500/20 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <Check className="w-4 h-4 stroke-[3]" />
-              <span>{isEditing ? 'Salvar Alterações' : 'Salvar Serviço'}</span>
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
+                  <span>Salvando...</span>
+                </>
+              ) : isIndeterminate ? (
+                <>
+                  <RefreshCw className="w-4 h-4 stroke-[2.5]" />
+                  <span>Verificar e Reenviar</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4 stroke-[3]" />
+                  <span>{isEditing ? 'Salvar Alterações' : 'Salvar Serviço'}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

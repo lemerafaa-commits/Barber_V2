@@ -23,7 +23,13 @@ import {
   createFirestoreProfessional,
   updateFirestoreProfessional,
   setProfessionalStatus,
+  generateProfessionalDraftId,
 } from '../../../services/firebase/professionals';
+import {
+  FirestoreOperationError,
+  extractFirestoreErrorMessage,
+  isFirebaseConfigured,
+} from '../../../services/firebase/config';
 import { AdminBarberFormModal } from './AdminBarberFormModal';
 import { AdminBarberDetailsModal } from './AdminBarberDetailsModal';
 import { AdminBarberDeactivateModal } from './AdminBarberDeactivateModal';
@@ -36,9 +42,11 @@ interface AdminTeamProps {
 
 export const AdminTeam: React.FC<AdminTeamProps> = ({
   services,
-  businessId = 'joao-barber',
+  businessId,
   onRefreshServices,
 }) => {
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -46,9 +54,14 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modals state
+  // Modals & async locks state
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingBarber, setEditingBarber] = useState<Barber | null>(null);
+  const [draftBarberId, setDraftBarberId] = useState<string | null>(null);
+  const [isSavingBarber, setIsSavingBarber] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isIndeterminateSave, setIsIndeterminateSave] = useState(false);
+  const [togglingBarberId, setTogglingBarberId] = useState<string | null>(null);
 
   const [detailsBarber, setDetailsBarber] = useState<Barber | null>(null);
 
@@ -66,10 +79,17 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
   useEffect(() => {
     let isMounted = true;
     async function loadData() {
+      if (isFirebaseConfigured && !cleanBusinessId) {
+        setBarbers([]);
+        setFetchError('Estabelecimento não identificado na sessão administrativa.');
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setFetchError(null);
       try {
-        const data = await getFirestoreProfessionals(businessId);
+        const data = await getFirestoreProfessionals(cleanBusinessId);
         if (isMounted) {
           setBarbers(data);
         }
@@ -78,7 +98,10 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
         if (isMounted) {
           setBarbers([]);
           setFetchError(
-            err?.message || 'Falha ao consultar a equipe de profissionais no banco de dados.'
+            extractFirestoreErrorMessage(
+              err,
+              'Falha ao consultar a equipe de profissionais no banco de dados.'
+            )
           );
         }
       } finally {
@@ -91,19 +114,27 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [businessId]);
+  }, [cleanBusinessId]);
 
   const handleRetryLoad = () => {
+    if (isFirebaseConfigured && !cleanBusinessId) {
+      setFetchError('Estabelecimento não identificado na sessão administrativa.');
+      return;
+    }
+
     setIsLoading(true);
     setFetchError(null);
-    getFirestoreProfessionals(businessId)
+    getFirestoreProfessionals(cleanBusinessId)
       .then((data) => {
         setBarbers(data);
       })
       .catch((err: any) => {
         setBarbers([]);
         setFetchError(
-          err?.message || 'Falha ao consultar a equipe de profissionais no banco de dados.'
+          extractFirestoreErrorMessage(
+            err,
+            'Falha ao consultar a equipe de profissionais no banco de dados.'
+          )
         );
       })
       .finally(() => {
@@ -130,13 +161,49 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
   const activeCount = barbers.filter((b) => b.status === 'active').length;
   const inactiveCount = barbers.filter((b) => b.status === 'inactive').length;
 
+  const handleOpenAddModal = () => {
+    setEditingBarber(null);
+    setDraftBarberId(generateProfessionalDraftId());
+    setModalError(null);
+    setIsIndeterminateSave(false);
+    setIsFormModalOpen(true);
+  };
+
+  const handleOpenEditModal = (barber: Barber) => {
+    setEditingBarber(barber);
+    setDraftBarberId(null);
+    setModalError(null);
+    setIsIndeterminateSave(false);
+    setIsFormModalOpen(true);
+  };
+
+  const handleCloseFormModal = () => {
+    if (isSavingBarber) return;
+    const shouldRefresh = isIndeterminateSave;
+    setIsFormModalOpen(false);
+    setEditingBarber(null);
+    setDraftBarberId(null);
+    setModalError(null);
+    setIsIndeterminateSave(false);
+    if (shouldRefresh) {
+      handleRetryLoad();
+    }
+  };
+
   // Handlers for Firestore / Service Actions
   const handleSaveBarber = async (barberData: Omit<Barber, 'id' | 'createdAt'> & { id?: string }) => {
+    if (isSavingBarber) return;
+    if (isFirebaseConfigured && !cleanBusinessId) {
+      setModalError('Estabelecimento não identificado na sessão administrativa.');
+      return;
+    }
+
     setActionError(null);
-    console.info('[Equipe UI] Salvando profissional:', { isEdit: Boolean(barberData.id), name: barberData.name, businessId });
+    setModalError(null);
+    setIsSavingBarber(true);
+
     try {
       if (barberData.id) {
-        // Edit existing in Firestore
         await updateFirestoreProfessional(barberData.id, barberData);
         setBarbers((prev) =>
           prev.map((b) =>
@@ -150,55 +217,77 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
           )
         );
       } else {
-        // Create new in Firestore
-        const savedBarber = await createFirestoreProfessional({
-          ...barberData,
-          businessId,
+        const targetId = draftBarberId || generateProfessionalDraftId();
+        if (!draftBarberId) {
+          setDraftBarberId(targetId);
+        }
+
+        const savedBarber = await createFirestoreProfessional(
+          {
+            ...barberData,
+            businessId: cleanBusinessId,
+          },
+          {
+            idempotencyId: targetId,
+            wasIndeterminate: isIndeterminateSave,
+          }
+        );
+
+        setBarbers((prev) => {
+          const exists = prev.some((b) => b.id === savedBarber.id);
+          return exists
+            ? prev.map((b) => (b.id === savedBarber.id ? savedBarber : b))
+            : [savedBarber, ...prev];
         });
-        setBarbers((prev) => [savedBarber, ...prev]);
       }
+
+      setIsFormModalOpen(false);
+      setEditingBarber(null);
+      setDraftBarberId(null);
+      setIsIndeterminateSave(false);
     } catch (err: any) {
       console.error('[Equipe UI] Erro ao salvar profissional:', err);
-      let errorMsg = 'Não foi possível salvar o profissional no banco de dados.';
-      try {
-        const parsed = JSON.parse(err.message);
-        if (parsed?.error) {
-          if (
-            parsed.error.includes('Missing or insufficient permissions') ||
-            parsed.error.includes('permission-denied')
-          ) {
-            errorMsg =
-              'Permissão negada no Firestore (permission-denied): As regras para a coleção /professionals precisam ser atualizadas no Firebase Console.';
-          } else {
-            errorMsg = `Erro Firestore: ${parsed.error}`;
-          }
-        }
-      } catch {
-        if (err?.message) {
-          errorMsg = `Erro: ${err.message}`;
-        }
-      }
-      setActionError(errorMsg);
+      const isIndeterminate = err instanceof FirestoreOperationError && err.isIndeterminate;
+      setIsIndeterminateSave(isIndeterminate);
+      setModalError(
+        extractFirestoreErrorMessage(
+          err,
+          'Não foi possível salvar o profissional no banco de dados.'
+        )
+      );
+    } finally {
+      setIsSavingBarber(false);
     }
   };
 
   const handleDeactivateBarber = async (barberId: string) => {
+    if (togglingBarberId) return;
     setActionError(null);
-    console.info('[Equipe UI] Desativando profissional ID:', barberId);
+    setTogglingBarberId(barberId);
     try {
       await setProfessionalStatus(barberId, 'inactive');
       setBarbers((prev) =>
         prev.map((b) => (b.id === barberId ? { ...b, status: 'inactive', active: false } : b))
       );
+      setDeactivatingBarber(null);
     } catch (err: any) {
       console.error('[Equipe UI] Erro ao desativar profissional:', err);
-      setActionError('Não foi possível desativar o profissional no banco de dados. Tente novamente.');
+      setActionError(
+        extractFirestoreErrorMessage(
+          err,
+          'Não foi possível desativar o profissional no banco de dados. Tente novamente.'
+        )
+      );
+      setDeactivatingBarber(null);
+    } finally {
+      setTogglingBarberId(null);
     }
   };
 
   const handleActivateBarber = async (barberId: string) => {
+    if (togglingBarberId) return;
     setActionError(null);
-    console.info('[Equipe UI] Reativando profissional ID:', barberId);
+    setTogglingBarberId(barberId);
     try {
       await setProfessionalStatus(barberId, 'active');
       setBarbers((prev) =>
@@ -206,7 +295,14 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
       );
     } catch (err: any) {
       console.error('[Equipe UI] Erro ao ativar profissional:', err);
-      setActionError('Não foi possível ativar o profissional no banco de dados. Tente novamente.');
+      setActionError(
+        extractFirestoreErrorMessage(
+          err,
+          'Não foi possível ativar o profissional no banco de dados. Tente novamente.'
+        )
+      );
+    } finally {
+      setTogglingBarberId(null);
     }
   };
 
@@ -273,10 +369,7 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
 
         <button
           type="button"
-          onClick={() => {
-            setEditingBarber(null);
-            setIsFormModalOpen(true);
-          }}
+          onClick={handleOpenAddModal}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs sm:text-sm transition-all shadow-md shadow-amber-500/20 cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
@@ -357,10 +450,7 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
           {barbers.length === 0 ? (
             <button
               type="button"
-              onClick={() => {
-                setEditingBarber(null);
-                setIsFormModalOpen(true);
-              }}
+              onClick={handleOpenAddModal}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-zinc-950 text-xs font-bold hover:bg-amber-400 transition-colors cursor-pointer"
             >
               <UserPlus className="w-3.5 h-3.5" />
@@ -494,10 +584,7 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setEditingBarber(barber);
-                              setIsFormModalOpen(true);
-                            }}
+                            onClick={() => handleOpenEditModal(barber)}
                             className="p-1.5 rounded-lg text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-colors cursor-pointer"
                             title="Editar barbeiro"
                           >
@@ -506,20 +593,30 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
                           {isActive ? (
                             <button
                               type="button"
+                              disabled={togglingBarberId === barber.id}
                               onClick={() => setDeactivatingBarber(barber)}
-                              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                               title="Desativar barbeiro"
                             >
-                              <Power className="w-4 h-4" />
+                              {togglingBarberId === barber.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Power className="w-4 h-4" />
+                              )}
                             </button>
                           ) : (
                             <button
                               type="button"
+                              disabled={togglingBarberId === barber.id}
                               onClick={() => handleActivateBarber(barber.id)}
-                              className="p-1.5 rounded-lg text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                               title="Ativar barbeiro"
                             >
-                              <Power className="w-4 h-4" />
+                              {togglingBarberId === barber.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Power className="w-4 h-4" />
+                              )}
                             </button>
                           )}
                         </div>
@@ -591,10 +688,7 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setEditingBarber(barber);
-                        setIsFormModalOpen(true);
-                      }}
+                      onClick={() => handleOpenEditModal(barber)}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-amber-400 transition-colors"
                     >
                       Editar
@@ -602,18 +696,20 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
                     {isActive ? (
                       <button
                         type="button"
+                        disabled={togglingBarberId === barber.id}
                         onClick={() => setDeactivatingBarber(barber)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 disabled:opacity-40"
                       >
-                        Desativar
+                        {togglingBarberId === barber.id ? 'Atualizando...' : 'Desativar'}
                       </button>
                     ) : (
                       <button
                         type="button"
+                        disabled={togglingBarberId === barber.id}
                         onClick={() => handleActivateBarber(barber.id)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 disabled:opacity-40"
                       >
-                        Ativar
+                        {togglingBarberId === barber.id ? 'Atualizando...' : 'Ativar'}
                       </button>
                     )}
                   </div>
@@ -627,14 +723,14 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
       {/* Form Modal: Add or Edit Barber */}
       <AdminBarberFormModal
         isOpen={isFormModalOpen}
-        onClose={() => {
-          setIsFormModalOpen(false);
-          setEditingBarber(null);
-        }}
+        onClose={handleCloseFormModal}
         onSave={handleSaveBarber}
         initialBarber={editingBarber}
         services={services}
-        businessId={businessId}
+        businessId={cleanBusinessId}
+        isSaving={isSavingBarber}
+        errorMessage={modalError}
+        isIndeterminate={isIndeterminateSave}
       />
 
       {/* Details Modal */}
@@ -647,8 +743,7 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
           onEdit={() => {
             const b = detailsBarber;
             setDetailsBarber(null);
-            setEditingBarber(b);
-            setIsFormModalOpen(true);
+            handleOpenEditModal(b);
           }}
           onToggleStatus={() => {
             const b = detailsBarber;
@@ -667,7 +762,10 @@ export const AdminTeam: React.FC<AdminTeamProps> = ({
         <AdminBarberDeactivateModal
           barber={deactivatingBarber}
           isOpen={Boolean(deactivatingBarber)}
-          onClose={() => setDeactivatingBarber(null)}
+          onClose={() => {
+            if (!togglingBarberId) setDeactivatingBarber(null);
+          }}
+          isProcessing={togglingBarberId === deactivatingBarber.id}
           onConfirm={() => handleDeactivateBarber(deactivatingBarber.id)}
         />
       )}

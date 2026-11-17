@@ -61,7 +61,10 @@ import { AppointmentConfirmationModal, AppointmentActionType } from './appointme
 import { ServicesHub } from './services/ServicesHub';
 import { AdminTeam } from './team/AdminTeam';
 import { signOutAdmin } from '../../services/firebase/auth';
-import { isFirebaseConfigured } from '../../services/firebase/config';
+import {
+  isFirebaseConfigured,
+  extractFirestoreErrorMessage,
+} from '../../services/firebase/config';
 
 interface AdminDashboardProps {
   businessId?: string;
@@ -74,7 +77,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onGoToPublicPage,
   onLogout,
 }) => {
-  const effectiveBusinessId = businessId || 'joao-barber';
+  const effectiveBusinessId = isFirebaseConfigured
+    ? (typeof businessId === 'string' ? businessId.trim() : '')
+    : (typeof businessId === 'string' && businessId.trim().length > 0 ? businessId.trim() : 'joao-barber');
+  const hasMissingTenant = isFirebaseConfigured && !effectiveBusinessId;
 
   // Appointments state initialized with mock data if Firebase is not configured, or empty array while loading from Firestore
   const [appointments, setAppointments] = useState<AdminAppointment[]>(() =>
@@ -128,6 +134,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Fetch real services from Firestore
   const fetchServices = async () => {
     if (!isFirebaseConfigured) return;
+    if (!effectiveBusinessId) {
+      setServicesError('Estabelecimento não identificado na sessão administrativa.');
+      setIsLoadingServices(false);
+      return;
+    }
     setIsLoadingServices(true);
     setServicesError(null);
     try {
@@ -135,7 +146,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setServices(firestoreServices);
     } catch (err: any) {
       console.warn('Erro ao carregar serviços do Firestore:', err);
-      setServicesError('Não foi possível sincronizar os serviços no momento.');
+      setServicesError(
+        extractFirestoreErrorMessage(err, 'Não foi possível sincronizar os serviços no momento.')
+      );
     } finally {
       setIsLoadingServices(false);
     }
@@ -153,6 +166,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsLoadingAppointments(false);
       return;
     }
+    if (!effectiveBusinessId) {
+      setAppointmentsError('Estabelecimento não identificado na sessão administrativa.');
+      setIsLoadingAppointments(false);
+      return;
+    }
     setIsLoadingAppointments(true);
     setAppointmentsError(null);
     try {
@@ -160,7 +178,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setAppointments(realAppointments);
     } catch (err: any) {
       console.warn('Agendamentos remotos inacessíveis (regras ou conexão):', err);
-      setAppointmentsError('Não foi possível carregar os agendamentos no momento.');
+      setAppointmentsError(
+        extractFirestoreErrorMessage(err, 'Não foi possível carregar os agendamentos no momento.')
+      );
     } finally {
       setIsLoadingAppointments(false);
     }
@@ -170,31 +190,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     fetchAppointments();
   }, [effectiveBusinessId]);
 
-  // Load business profile on mount
-  useEffect(() => {
-    async function fetchProfile() {
-      setIsLoadingProfile(true);
-      setProfileError(null);
-      try {
-        const profile = await loadBusinessProfile(effectiveBusinessId);
-        setBusinessProfile(profile);
-      } catch (err: any) {
-        console.warn('Using default business profile state:', err);
-        setProfileError(err?.message || 'Falha ao carregar perfil da barbearia.');
-      } finally {
-        setIsLoadingProfile(false);
-      }
+  // Load business profile
+  const fetchProfile = async () => {
+    if (isFirebaseConfigured && !effectiveBusinessId) {
+      setProfileError('Estabelecimento não identificado na sessão administrativa.');
+      setIsLoadingProfile(false);
+      return;
     }
+    setIsLoadingProfile(true);
+    setProfileError(null);
+    try {
+      const profile = await loadBusinessProfile(effectiveBusinessId);
+      setBusinessProfile(profile);
+    } catch (err: any) {
+      console.warn('Erro ao carregar perfil da barbearia:', err);
+      setProfileError(
+        extractFirestoreErrorMessage(
+          err,
+          'Não foi possível carregar os dados da barbearia no Firestore.'
+        )
+      );
+    } finally {
+      setIsLoadingProfile(false);
+    }
+  };
+
+  useEffect(() => {
     fetchProfile();
   }, [effectiveBusinessId]);
 
-  // Save profile handler (prepared for future Firestore layer)
+  // Save profile handler
   const handleSaveProfile = async (updates: Partial<BusinessProfile>) => {
+    if (isFirebaseConfigured && !effectiveBusinessId) {
+      throw new Error('Estabelecimento não identificado na sessão administrativa.');
+    }
     setIsSavingProfile(true);
     try {
-      const response = await saveBusinessProfile(updates, effectiveBusinessId);
+      const response = await saveBusinessProfile(
+        updates,
+        effectiveBusinessId,
+        businessProfile
+      );
       if (response.success && response.data) {
         setBusinessProfile(response.data);
+        setProfileError(null);
       }
     } finally {
       setIsSavingProfile(false);
@@ -249,7 +288,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (type === 'complete') {
       setCompletingId(id);
       try {
-        const response = await updateFirestoreAppointmentStatus(id, 'completed');
+        const response = await updateFirestoreAppointmentStatus(
+          id,
+          'completed',
+          effectiveBusinessId
+        );
         if (response.success) {
           const result = updateAppointmentStatus(appointments, id, 'completed');
           if (result.success) {
@@ -258,12 +301,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setActionSuccess('✓ Atendimento concluído com sucesso.');
           setPendingAction(null);
         } else {
-          setActionError('Não foi possível concluir o atendimento. Tente novamente.');
+          setActionError(
+            response.error || 'Não foi possível concluir o atendimento. Tente novamente.'
+          );
           setPendingAction(null);
+          if (response.isIndeterminate) {
+            fetchAppointments().catch(() => {});
+          }
         }
       } catch (err) {
         console.error('Erro ao concluir atendimento:', err);
-        setActionError('Não foi possível concluir o atendimento. Tente novamente.');
+        setActionError(
+          extractFirestoreErrorMessage(
+            err,
+            'Não foi possível concluir o atendimento. Tente novamente.'
+          )
+        );
         setPendingAction(null);
       } finally {
         setCompletingId(null);
@@ -271,7 +324,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } else if (type === 'cancel') {
       setCancellingId(id);
       try {
-        const response = await updateFirestoreAppointmentStatus(id, 'cancelled', effectiveBusinessId);
+        const response = await updateFirestoreAppointmentStatus(
+          id,
+          'cancelled',
+          effectiveBusinessId
+        );
         if (response.success) {
           const result = updateAppointmentStatus(appointments, id, 'cancelled');
           if (result.success) {
@@ -280,12 +337,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setActionSuccess('✓ Agendamento cancelado com sucesso.');
           setPendingAction(null);
         } else {
-          setActionError('Não foi possível cancelar o agendamento. Tente novamente.');
+          setActionError(
+            response.error || 'Não foi possível cancelar o agendamento. Tente novamente.'
+          );
           setPendingAction(null);
+          if (response.isIndeterminate) {
+            fetchAppointments().catch(() => {});
+          }
         }
       } catch (err) {
         console.error('Erro ao cancelar agendamento:', err);
-        setActionError('Não foi possível cancelar o agendamento. Tente novamente.');
+        setActionError(
+          extractFirestoreErrorMessage(
+            err,
+            'Não foi possível cancelar o agendamento. Tente novamente.'
+          )
+        );
         setPendingAction(null);
       } finally {
         setCancellingId(null);
@@ -313,6 +380,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const isViewingToday = selectedDate === todayFormattedIso;
   const friendlyDateTitle = getFriendlyDateLabel(selectedDate);
+
+  if (hasMissingTenant) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-6">
+        <div className="max-w-md w-full p-6 rounded-2xl bg-zinc-900 border border-rose-500/30 text-center space-y-4">
+          <AlertCircle className="w-8 h-8 text-rose-400 mx-auto" />
+          <h2 className="text-lg font-bold text-white">Estabelecimento não identificado</h2>
+          <p className="text-xs text-zinc-400">
+            Sua sessão administrativa não possui um identificador de barbearia válido. Encerre a sessão e faça login novamente.
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await signOutAdmin();
+              } catch {}
+              if (onLogout) onLogout();
+            }}
+            className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold cursor-pointer"
+          >
+            Sair
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans pb-20 antialiased">
@@ -500,6 +593,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onNavigateSection={setProfileSection}
                 isLoading={isLoadingProfile}
                 error={profileError}
+                onRetry={fetchProfile}
               />
             )}
 

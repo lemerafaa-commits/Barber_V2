@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { MasterTab } from '../../types/master';
 
-import { auth } from '../../services/firebase/config';
+import { getCurrentMasterUser } from '../../services/master/masterAuthService';
 
 interface MasterHeaderProps {
   activeTab: MasterTab;
@@ -71,7 +71,7 @@ export const MasterHeader: React.FC<MasterHeaderProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const current = TAB_TITLES[activeTab] || TAB_TITLES.overview;
 
-  const currentAuthUser = auth?.currentUser;
+  const currentAuthUser = getCurrentMasterUser();
   const userDisplayName =
     currentAuthUser?.displayName ||
     (currentAuthUser?.email ? currentAuthUser.email.split('@')[0] : 'Master');

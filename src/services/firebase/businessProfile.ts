@@ -4,7 +4,16 @@ import {
   setDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
+import {
+  db,
+  handleFirestoreError,
+  OperationType,
+  isFirebaseConfigured,
+  assertBrowserOnline,
+  awaitFirestoreOperation,
+  FIRESTORE_READ_TIMEOUT_MS,
+  FIRESTORE_WRITE_TIMEOUT_MS,
+} from './config';
 import { BusinessProfile } from '../../types/businessProfile';
 
 export const CANONICAL_BUSINESS_ID = 'joao-barber';
@@ -105,88 +114,148 @@ export function normalizeBusinessProfile(
   };
 }
 
+function validateBusinessProfileUpdates(updates: Partial<BusinessProfile>): void {
+  if (updates.name !== undefined && updates.name.trim().length > 100) {
+    throw new Error('O nome da barbearia não pode ultrapassar 100 caracteres.');
+  }
+  if (updates.description !== undefined && updates.description.trim().length > 500) {
+    throw new Error('A descrição não pode ultrapassar 500 caracteres.');
+  }
+  if (updates.logoUrl !== undefined && updates.logoUrl.trim().length > 1000) {
+    throw new Error('A URL do logotipo não pode ultrapassar 1000 caracteres.');
+  }
+  if (updates.whatsapp !== undefined && updates.whatsapp.trim().length > 30) {
+    throw new Error('O WhatsApp não pode ultrapassar 30 caracteres.');
+  }
+  if (updates.instagram !== undefined && updates.instagram.trim().length > 60) {
+    throw new Error('O Instagram não pode ultrapassar 60 caracteres.');
+  }
+}
+
 /**
  * Fetches the BusinessProfile from Firestore (businesses/{businessId}).
- * Returns DEFAULT_BUSINESS_PROFILE as fallback if the document does not exist or in case of error.
+ * Returns DEFAULT_BUSINESS_PROFILE ONLY when the document legitimately does not exist yet
+ * or when Firebase is disabled in preview mode. Propagates connection/permission errors.
  */
 export async function getFirestoreBusinessProfile(
   businessId = CANONICAL_BUSINESS_ID
 ): Promise<BusinessProfile> {
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+
   if (!isFirebaseConfigured || !db) {
+    const demoId = cleanBusinessId || CANONICAL_BUSINESS_ID;
     return {
       ...DEFAULT_BUSINESS_PROFILE,
-      businessId,
+      businessId: demoId,
+      slug: demoId,
     };
   }
 
-  const docPath = `businesses/${businessId}`;
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) ausente para carregar o perfil.');
+  }
+
+  const docPath = `businesses/${cleanBusinessId}`;
   try {
-    const docRef = doc(db, 'businesses', businessId);
-    const docSnap = await getDoc(docRef);
+    assertBrowserOnline('carregar o perfil da barbearia');
+    const docRef = doc(db, 'businesses', cleanBusinessId);
+    const docSnap = await awaitFirestoreOperation(getDoc(docRef), {
+      timeoutMs: FIRESTORE_READ_TIMEOUT_MS,
+      timeoutMessage:
+        'Tempo esgotado ao carregar o perfil da barbearia no Firestore. Verifique sua conexão.',
+      indeterminateOnTimeout: false,
+    });
 
     if (docSnap.exists()) {
-      return normalizeBusinessProfile(docSnap.data(), businessId);
+      return normalizeBusinessProfile(docSnap.data(), cleanBusinessId);
     }
 
-    // Document does not exist yet: return fallback profile
+    // Documento legítimo ainda não criado: retorna estrutura padrão vinculada ao tenant real
     return {
       ...DEFAULT_BUSINESS_PROFILE,
-      businessId,
+      businessId: cleanBusinessId,
+      slug: cleanBusinessId,
     };
   } catch (error) {
-    console.warn('[Firestore] Perfil da barbearia inacessível (regras ou conexão). Retornando perfil padrão.', error);
-    // Return resilient fallback if offline or unexpected network error
-    return {
-      ...DEFAULT_BUSINESS_PROFILE,
-      businessId,
-    };
+    console.warn('[Firestore] Falha ao carregar perfil da barbearia:', error);
+    handleFirestoreError(error, OperationType.GET, docPath);
+    throw error;
   }
 }
 
 /**
  * Saves/Updates the BusinessProfile document in Firestore (businesses/{businessId}) with partial merge.
+ * Avoids redundant read-after-write getDoc so slow/intermittent reads cannot mask a confirmed write.
  */
 export async function saveFirestoreBusinessProfile(
-  businessId = CANONICAL_BUSINESS_ID,
-  updates: Partial<BusinessProfile>
+  businessId: string,
+  updates: Partial<BusinessProfile>,
+  currentProfile?: BusinessProfile
 ): Promise<BusinessProfile> {
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+
+  validateBusinessProfileUpdates(updates);
+
+  const baseProfile = currentProfile || {
+    ...DEFAULT_BUSINESS_PROFILE,
+    businessId: cleanBusinessId || CANONICAL_BUSINESS_ID,
+    slug: cleanBusinessId || CANONICAL_BUSINESS_ID,
+  };
+
   if (!isFirebaseConfigured || !db) {
+    const demoId = cleanBusinessId || CANONICAL_BUSINESS_ID;
     return {
-      ...DEFAULT_BUSINESS_PROFILE,
+      ...baseProfile,
       ...updates,
-      businessId,
+      businessId: demoId,
+      slug: updates.slug ?? baseProfile.slug ?? demoId,
+      address: updates.address ? { ...baseProfile.address, ...updates.address } : baseProfile.address,
+      openingHours: updates.openingHours
+        ? { ...baseProfile.openingHours, ...updates.openingHours }
+        : baseProfile.openingHours,
     };
   }
 
-  const docPath = `businesses/${businessId}`;
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) ausente na sessão administrativa.');
+  }
+
+  assertBrowserOnline('salvar alterações do perfil da barbearia');
+
+  const docPath = `businesses/${cleanBusinessId}`;
   try {
     const cleanUpdates: Record<string, any> = {
-      businessId,
+      businessId: cleanBusinessId,
       updatedAt: serverTimestamp(),
     };
 
-    if (updates.slug !== undefined) cleanUpdates.slug = updates.slug;
-    if (updates.name !== undefined) cleanUpdates.name = updates.name;
-    if (updates.description !== undefined) cleanUpdates.description = updates.description;
-    if (updates.logoUrl !== undefined) cleanUpdates.logoUrl = updates.logoUrl;
-    if (updates.whatsapp !== undefined) cleanUpdates.whatsapp = updates.whatsapp;
-    if (updates.instagram !== undefined) cleanUpdates.instagram = updates.instagram;
+    if (updates.slug !== undefined) cleanUpdates.slug = updates.slug.trim();
+    if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
+    if (updates.description !== undefined) cleanUpdates.description = updates.description.trim();
+    if (updates.logoUrl !== undefined) cleanUpdates.logoUrl = updates.logoUrl.trim();
+    if (updates.whatsapp !== undefined) cleanUpdates.whatsapp = updates.whatsapp.trim();
+    if (updates.instagram !== undefined) cleanUpdates.instagram = updates.instagram.trim();
     if (updates.address !== undefined) cleanUpdates.address = updates.address;
     if (updates.openingHours !== undefined) cleanUpdates.openingHours = updates.openingHours;
 
-    const docRef = doc(db, 'businesses', businessId);
-    await setDoc(docRef, cleanUpdates, { merge: true });
-
-    // Fetch the updated complete state to ensure synchronization
-    const updatedSnap = await getDoc(docRef);
-    if (updatedSnap.exists()) {
-      return normalizeBusinessProfile(updatedSnap.data(), businessId);
-    }
+    const docRef = doc(db, 'businesses', cleanBusinessId);
+    await awaitFirestoreOperation(setDoc(docRef, cleanUpdates, { merge: true }), {
+      timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+      timeoutMessage:
+        'Não foi possível confirmar o salvamento do perfil no Firestore (conexão instável ou offline).',
+      indeterminateOnTimeout: true,
+    });
 
     return {
-      ...DEFAULT_BUSINESS_PROFILE,
+      ...baseProfile,
       ...updates,
-      businessId,
+      businessId: cleanBusinessId,
+      slug: updates.slug ?? baseProfile.slug ?? cleanBusinessId,
+      address: updates.address ? { ...baseProfile.address, ...updates.address } : baseProfile.address,
+      openingHours: updates.openingHours
+        ? { ...baseProfile.openingHours, ...updates.openingHours }
+        : baseProfile.openingHours,
+      updatedAt: new Date().toISOString(),
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, docPath);

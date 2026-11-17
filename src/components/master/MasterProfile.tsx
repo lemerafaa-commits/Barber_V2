@@ -9,7 +9,7 @@ import {
   LogOut,
   CheckCircle2,
 } from 'lucide-react';
-import { auth } from '../../services/firebase/config';
+import { getCurrentMasterUser } from '../../services/master/masterAuthService';
 
 interface MasterProfileProps {
   onLogoutClick: () => void;
@@ -19,7 +19,7 @@ interface MasterProfileProps {
 export const MasterProfile: React.FC<MasterProfileProps> = ({
   onLogoutClick,
 }) => {
-  const currentAuthUser = auth?.currentUser;
+  const currentAuthUser = getCurrentMasterUser();
   const displayName =
     currentAuthUser?.displayName ||
     (currentAuthUser?.email ? currentAuthUser.email.split('@')[0] : 'Administrador Master');

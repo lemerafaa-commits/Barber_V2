@@ -21,9 +21,13 @@ import {
   createFirestoreService,
   updateFirestoreService,
   toggleFirestoreServiceActive,
-  getFirestoreServices,
-  CANONICAL_BUSINESS_ID,
+  generateServiceDraftId,
 } from '../../../services/firebase/services';
+import {
+  FirestoreOperationError,
+  extractFirestoreErrorMessage,
+  isFirebaseConfigured,
+} from '../../../services/firebase/config';
 import { ServiceCard } from './ServiceCard';
 import { ServiceFormModal } from './ServiceFormModal';
 
@@ -47,7 +51,10 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedServiceToEdit, setSelectedServiceToEdit] = useState<AdminService | null>(null);
+  const [draftServiceId, setDraftServiceId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isIndeterminateSave, setIsIndeterminateSave] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Feedback banner state
@@ -66,18 +73,31 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
   // Handlers
   const handleOpenAddModal = () => {
     setSelectedServiceToEdit(null);
+    setDraftServiceId(generateServiceDraftId());
+    setModalError(null);
+    setIsIndeterminateSave(false);
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (service: AdminService) => {
     setSelectedServiceToEdit(service);
+    setDraftServiceId(null);
+    setModalError(null);
+    setIsIndeterminateSave(false);
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     if (isSaving) return;
+    const shouldRefreshAfterIndeterminate = isIndeterminateSave;
     setIsModalOpen(false);
     setSelectedServiceToEdit(null);
+    setDraftServiceId(null);
+    setModalError(null);
+    setIsIndeterminateSave(false);
+    if (shouldRefreshAfterIndeterminate && onRefresh) {
+      onRefresh().catch(() => {});
+    }
   };
 
   const handleSaveService = async (serviceData: {
@@ -88,7 +108,17 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
     durationMinutes: number;
     active: boolean;
   }) => {
+    if (isSaving) return;
+
+    const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+    if (isFirebaseConfigured && !cleanBusinessId) {
+      setModalError('Estabelecimento não identificado na sessão administrativa.');
+      return;
+    }
+
     setIsSaving(true);
+    setModalError(null);
+
     try {
       if (selectedServiceToEdit) {
         // Update in Cloud Firestore
@@ -110,24 +140,53 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
         showFeedback(`Serviço "${serviceData.name}" atualizado com sucesso no Firestore!`);
         setIsModalOpen(false);
         setSelectedServiceToEdit(null);
+        setDraftServiceId(null);
+        setIsIndeterminateSave(false);
       } else {
-        // Create in Cloud Firestore
-        const createdService = await createFirestoreService(serviceData, businessId || CANONICAL_BUSINESS_ID);
-        onServicesChange([...services, createdService]);
-        showFeedback(`Serviço "${serviceData.name}" adicionado com sucesso no Firestore!`);
+        // Create in Cloud Firestore with deterministic ID preserved across retries
+        const targetId = draftServiceId || generateServiceDraftId();
+        if (!draftServiceId) {
+          setDraftServiceId(targetId);
+        }
+
+        const createdService = await createFirestoreService(
+          serviceData,
+          isFirebaseConfigured ? cleanBusinessId : cleanBusinessId || 'joao-barber',
+          {
+            idempotencyId: targetId,
+            wasIndeterminate: isIndeterminateSave,
+          }
+        );
+
+        const alreadyInList = services.some((s) => s.id === createdService.id);
+        const nextServices = alreadyInList
+          ? services.map((s) => (s.id === createdService.id ? createdService : s))
+          : [...services, createdService];
+
+        onServicesChange(nextServices);
+        showFeedback(`Serviço "${serviceData.name}" salvo com sucesso no Firestore!`);
         setIsModalOpen(false);
         setSelectedServiceToEdit(null);
+        setDraftServiceId(null);
+        setIsIndeterminateSave(false);
       }
     } catch (err: any) {
       console.error('Erro ao salvar serviço no Firestore:', err);
-      const message = err?.message || 'Falha ao salvar o serviço no Firestore. Tente novamente.';
-      showFeedback(message, 'error');
+      const isIndeterminate = err instanceof FirestoreOperationError && err.isIndeterminate;
+      setIsIndeterminateSave(isIndeterminate);
+      setModalError(
+        extractFirestoreErrorMessage(
+          err,
+          'Falha ao salvar o serviço no Firestore. Tente novamente.'
+        )
+      );
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleToggleActive = async (id: string) => {
+    if (togglingId) return;
     const targetService = services.find((s) => s.id === id);
     if (!targetService) return;
 
@@ -149,7 +208,10 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
       );
     } catch (err: any) {
       console.error('Erro ao alternar status do serviço no Firestore:', err);
-      showFeedback('Falha ao atualizar o status no Firestore.', 'error');
+      showFeedback(
+        extractFirestoreErrorMessage(err, 'Falha ao atualizar o status no Firestore.'),
+        'error'
+      );
     } finally {
       setTogglingId(null);
     }
@@ -350,6 +412,7 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
                       service={service}
                       onEdit={handleOpenEditModal}
                       onToggleActive={handleToggleActive}
+                      isToggling={togglingId === service.id}
                     />
                   ))}
                 </div>
@@ -380,6 +443,8 @@ export const ServicesHub: React.FC<ServicesHubProps> = ({
         onSave={handleSaveService}
         serviceToEdit={selectedServiceToEdit}
         isSaving={isSaving}
+        errorMessage={modalError}
+        isIndeterminate={isIndeterminateSave}
       />
     </div>
   );

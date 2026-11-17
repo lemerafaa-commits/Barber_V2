@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Clock,
@@ -7,7 +7,8 @@ import {
   Check,
   X,
 } from 'lucide-react';
-import { BusinessProfile, WeeklySchedule, DaySchedule } from '../../../types/businessProfile';
+import { BusinessProfile, WeeklySchedule } from '../../../types/businessProfile';
+import { extractFirestoreErrorMessage } from '../../../services/firebase/config';
 
 interface HoursSectionProps {
   profile: BusinessProfile;
@@ -35,6 +36,10 @@ export const HoursSection: React.FC<HoursSectionProps> = ({
   const [openingHours, setOpeningHours] = useState<WeeklySchedule>({ ...profile.openingHours });
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOpeningHours({ ...profile.openingHours });
+  }, [profile.openingHours]);
 
   const handleToggleDay = (dayKey: keyof WeeklySchedule) => {
     setOpeningHours((prev) => ({
@@ -73,10 +78,12 @@ export const HoursSection: React.FC<HoursSectionProps> = ({
         setSaveSuccessMessage(null);
       }, 4000);
     } catch (err: any) {
-      setSaveErrorMessage('Erro ao salvar alterações. Tente novamente.');
+      setSaveErrorMessage(
+        extractFirestoreErrorMessage(err, 'Erro ao salvar alterações. Tente novamente.')
+      );
       setTimeout(() => {
         setSaveErrorMessage(null);
-      }, 5000);
+      }, 6000);
     }
   };
 

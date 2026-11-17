@@ -12,6 +12,8 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   Barber,
@@ -28,10 +30,13 @@ import { DEFAULT_WEEKLY_SCHEDULE } from '../../../data/adminMockData';
 interface AdminBarberFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (barberData: Omit<Barber, 'id' | 'createdAt'> & { id?: string }) => void;
+  onSave: (barberData: Omit<Barber, 'id' | 'createdAt'> & { id?: string }) => Promise<void>;
   initialBarber?: Barber | null;
   services: AdminService[];
   businessId?: string;
+  isSaving?: boolean;
+  errorMessage?: string | null;
+  isIndeterminate?: boolean;
 }
 
 const AVATAR_PRESETS = [
@@ -50,6 +55,9 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
   initialBarber,
   services,
   businessId,
+  isSaving = false,
+  errorMessage = null,
+  isIndeterminate = false,
 }) => {
   const isEditing = Boolean(initialBarber);
 
@@ -72,7 +80,7 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
   const [expandedDays, setExpandedDays] = useState<number[]>([1]);
 
   // Form Validation
-  const [errors, setErrors] = useState<{ name?: string; whatsapp?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; whatsapp?: string; email?: string }>({});
 
   useEffect(() => {
     if (initialBarber) {
@@ -320,17 +328,37 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
 
-    const newErrors: { name?: string; whatsapp?: string } = {};
-    if (!name.trim()) newErrors.name = 'Nome completo é obrigatório.';
-    if (!whatsapp.trim()) newErrors.whatsapp = 'Número de WhatsApp é obrigatório.';
+    const newErrors: { name?: string; whatsapp?: string; email?: string } = {};
+    const trimmedName = name.trim();
+    const trimmedWhatsapp = whatsapp.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName) {
+      newErrors.name = 'Nome completo é obrigatório.';
+    } else if (trimmedName.length > 100) {
+      newErrors.name = 'Nome deve ter no máximo 100 caracteres.';
+    }
+
+    if (!trimmedWhatsapp) {
+      newErrors.whatsapp = 'Número de WhatsApp é obrigatório.';
+    } else if (trimmedWhatsapp.length < 4 || trimmedWhatsapp.length > 30) {
+      newErrors.whatsapp = 'WhatsApp deve ter entre 4 e 30 caracteres.';
+    }
+
+    if (trimmedEmail.length > 100) {
+      newErrors.email = 'E-mail deve ter no máximo 100 caracteres.';
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
+
+    setErrors({});
 
     // Prepare configs list
     const finalConfigs: BarberServiceConfig[] =
@@ -363,12 +391,12 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
       };
     });
 
-    onSave({
+    await onSave({
       ...(initialBarber ? { id: initialBarber.id } : {}),
-      businessId: initialBarber?.businessId || businessId || 'joao-barber',
-      name: name.trim(),
-      whatsapp: whatsapp.trim(),
-      email: email.trim() || undefined,
+      businessId: initialBarber?.businessId || businessId || '',
+      name: trimmedName,
+      whatsapp: trimmedWhatsapp,
+      email: trimmedEmail || undefined,
       photoUrl,
       status,
       serviceMode,
@@ -376,8 +404,6 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
       serviceConfigs: finalConfigs,
       schedule: finalSchedule,
     });
-
-    onClose();
   };
 
   return (
@@ -402,11 +428,37 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+            disabled={isSaving}
+            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Error / Indeterminate Banner inside Modal */}
+        {errorMessage && (
+          <div
+            className={`p-3.5 rounded-2xl border flex items-start gap-2.5 text-xs ${
+              isIndeterminate
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            {isIndeterminate ? (
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            )}
+            <div className="space-y-1">
+              <p className="font-semibold leading-relaxed">{errorMessage}</p>
+              {isIndeterminate && (
+                <p className="text-[11px] text-amber-300/80">
+                  O identificador da tentativa foi preservado para você reenviar com segurança sem duplicar o barbeiro.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-7">
           {/* Avatar selection */}
@@ -453,6 +505,7 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
               </label>
               <input
                 type="text"
+                maxLength={100}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Ex: Matheus Oliveira"
@@ -474,6 +527,7 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
               </label>
               <input
                 type="text"
+                maxLength={30}
                 value={whatsapp}
                 onChange={(e) => setWhatsapp(e.target.value)}
                 placeholder="(15) 99999-9999"
@@ -495,11 +549,20 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
               </label>
               <input
                 type="email"
+                maxLength={100}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="barbeiro@exemplo.com"
-                className="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                className={`w-full px-4 py-2.5 rounded-xl bg-zinc-950 border text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                  errors.email ? 'border-rose-500' : 'border-zinc-800 focus:border-amber-500'
+                }`}
               />
+              {errors.email && (
+                <span className="text-[11px] text-rose-400 flex items-center gap-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {errors.email}
+                </span>
+              )}
             </div>
 
             <div className="space-y-1.5 sm:col-span-2">
@@ -999,15 +1062,26 @@ export const AdminBarberFormModal: React.FC<AdminBarberFormModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+              disabled={isSaving}
+              className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors shadow-md shadow-amber-500/20 cursor-pointer"
+              disabled={isSaving}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors shadow-md shadow-amber-500/20 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {isEditing ? 'Salvar Alterações' : 'Adicionar Barbeiro'}
+              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>
+                {isSaving
+                  ? 'Salvando...'
+                  : isIndeterminate
+                  ? 'Verificar e Reenviar'
+                  : isEditing
+                  ? 'Salvar Alterações'
+                  : 'Adicionar Barbeiro'}
+              </span>
             </button>
           </div>
         </form>

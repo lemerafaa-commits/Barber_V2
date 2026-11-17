@@ -7,7 +7,19 @@ import {
   doc,
   writeBatch
 } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
+import {
+  db,
+  auth,
+  handleFirestoreError,
+  OperationType,
+  isFirebaseConfigured,
+  assertBrowserOnline,
+  awaitFirestoreOperation,
+  extractFirestoreErrorMessage,
+  FIRESTORE_READ_TIMEOUT_MS,
+  FIRESTORE_WRITE_TIMEOUT_MS,
+  FirestoreOperationError,
+} from './config';
 import { Service } from '../../types/booking';
 import { AdminAppointment, AdminServiceItem, AppointmentStatus } from '../../types/admin';
 
@@ -276,19 +288,29 @@ export async function getFirestoreAppointmentsByDate(
  * Normalizes Firestore documents to AdminAppointment and sorts chronologically.
  */
 export async function getFirestoreAppointmentsForAdmin(
-  businessId = 'joao-barber'
+  businessId: string
 ): Promise<AdminAppointment[]> {
   if (!isFirebaseConfigured || !db) {
     return [];
   }
 
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) ausente na sessão administrativa.');
+  }
+
   const collectionPath = 'appointments';
   try {
+    assertBrowserOnline('consultar os agendamentos');
     const q = query(
       collection(db, collectionPath),
-      where('businessId', '==', businessId)
+      where('businessId', '==', cleanBusinessId)
     );
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await awaitFirestoreOperation(getDocs(q), {
+      timeoutMs: FIRESTORE_READ_TIMEOUT_MS,
+      timeoutMessage: 'Tempo esgotado ao carregar os agendamentos do Firestore. Verifique sua conexão.',
+      indeterminateOnTimeout: false,
+    });
 
     const records: AdminAppointment[] = [];
     querySnapshot.forEach((docSnap) => {
@@ -321,18 +343,34 @@ export async function updateFirestoreAppointmentStatus(
   appointmentId: string,
   status: 'cancelled' | 'completed',
   businessId?: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; isIndeterminate?: boolean }> {
   if (!isFirebaseConfigured || !db) {
     return { success: true };
   }
 
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+
   // 1. FLUXO SERVERLESS TRANSACIONAL PARA CANCELAMENTO
   if (status === 'cancelled') {
+    if (!cleanBusinessId) {
+      return {
+        success: false,
+        error: 'Estabelecimento não identificado na sessão administrativa.',
+      };
+    }
+
     const currentUser = auth?.currentUser;
     if (!currentUser) {
       return {
         success: false,
         error: 'Autenticação necessária. Faça login como administrador para cancelar reservas.',
+      };
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return {
+        success: false,
+        error: 'Sem conexão com a internet para cancelar o agendamento. Verifique sua rede e tente novamente.',
       };
     }
 
@@ -347,6 +385,9 @@ export async function updateFirestoreAppointmentStatus(
       };
     }
 
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+
     try {
       const response = await fetch('/api/admin/bookings/cancel', {
         method: 'POST',
@@ -355,9 +396,10 @@ export async function updateFirestoreAppointmentStatus(
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          businessId: businessId || 'joao-barber',
+          businessId: cleanBusinessId,
           appointmentId,
         }),
+        ...(controller ? { signal: controller.signal } : {}),
       });
 
       let data: any = null;
@@ -392,30 +434,55 @@ export async function updateFirestoreAppointmentStatus(
         error: errorMessage,
       };
     } catch (networkErr: any) {
+      if (networkErr?.name === 'AbortError') {
+        return {
+          success: false,
+          error: 'Tempo esgotado ao comunicar com o servidor para cancelar o agendamento.',
+          isIndeterminate: true,
+        };
+      }
       console.error('[Admin Cancel] Erro de conexão com o servidor:', networkErr);
       return {
         success: false,
         error: 'Erro de conexão com o servidor ao cancelar agendamento. Verifique sua conexão e tente novamente.',
       };
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 
   // 2. FLUXO CLIENT SDK PRESERVADO PARA CONCLUSÃO DE ATENDIMENTO ('completed')
   const collectionPath = 'appointments';
   try {
+    assertBrowserOnline('concluir o atendimento');
+
     const batch = writeBatch(db);
     const aptRef = doc(db, 'appointments', appointmentId);
     const slotRef = doc(db, 'busy_slots', appointmentId);
 
     batch.update(aptRef, { status });
     batch.update(slotRef, { status });
-    await batch.commit();
+    await awaitFirestoreOperation(batch.commit(), {
+      timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+      timeoutMessage:
+        'Não foi possível confirmar a conclusão do atendimento no Firestore (conexão instável ou offline).',
+      indeterminateOnTimeout: true,
+    });
 
     return { success: true };
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `${collectionPath}/${appointmentId}`);
-    const errorMessage = error instanceof Error ? error.message : 'Falha ao atualizar status no Firestore';
-    return { success: false, error: errorMessage };
+    console.error(`[Firestore] Erro ao concluir atendimento "${collectionPath}/${appointmentId}":`, error);
+    const isIndeterminate = error instanceof FirestoreOperationError && error.isIndeterminate;
+    return {
+      success: false,
+      error: extractFirestoreErrorMessage(
+        error,
+        'Não foi possível concluir o atendimento no Firestore. Tente novamente.'
+      ),
+      isIndeterminate,
+    };
   }
 }
 

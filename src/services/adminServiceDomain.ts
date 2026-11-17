@@ -70,39 +70,50 @@ export interface ServiceValidationResult {
   errors: {
     name?: string;
     categoryId?: string;
+    description?: string;
     price?: string;
     durationMinutes?: string;
   };
 }
 
 /**
- * Validates service inputs locally before save.
+ * Validates service inputs locally before save, aligned with firestore.rules.
  */
 export function validateServiceInput(input: {
   name: string;
   categoryId: string;
+  description?: string;
   price: number;
   durationMinutes: number;
 }): ServiceValidationResult {
   const errors: ServiceValidationResult['errors'] = {};
 
-  if (!input.name || input.name.trim().length === 0) {
+  const trimmedName = typeof input.name === 'string' ? input.name.trim() : '';
+  if (trimmedName.length === 0) {
     errors.name = 'O nome do serviço é obrigatório.';
-  } else if (input.name.trim().length < 2) {
+  } else if (trimmedName.length < 2) {
     errors.name = 'O nome deve conter pelo menos 2 caracteres.';
+  } else if (trimmedName.length > 100) {
+    errors.name = 'O nome deve ter no máximo 100 caracteres.';
   }
 
-  if (!input.categoryId || input.categoryId.trim().length === 0) {
+  const trimmedCat = typeof input.categoryId === 'string' ? input.categoryId.trim() : '';
+  if (trimmedCat.length === 0 || trimmedCat.length > 64) {
     errors.categoryId = 'Selecione uma categoria válida.';
   }
 
-  if (typeof input.price !== 'number' || isNaN(input.price) || input.price < 0) {
+  const trimmedDesc = typeof input.description === 'string' ? input.description.trim() : '';
+  if (trimmedDesc.length > 500) {
+    errors.description = 'A descrição deve ter no máximo 500 caracteres.';
+  }
+
+  if (typeof input.price !== 'number' || !Number.isFinite(input.price) || input.price < 0) {
     errors.price = 'O preço deve ser um valor numérico maior ou igual a zero.';
   }
 
   if (
     typeof input.durationMinutes !== 'number' ||
-    isNaN(input.durationMinutes) ||
+    !Number.isFinite(input.durationMinutes) ||
     input.durationMinutes <= 0 ||
     !Number.isInteger(input.durationMinutes)
   ) {

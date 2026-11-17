@@ -1,21 +1,109 @@
 import {
   collection,
-  addDoc,
   setDoc,
   doc,
   getDocs,
-  getDoc,
+  getDocsFromServer,
   query,
   where,
   updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
+import {
+  db,
+  handleFirestoreError,
+  OperationType,
+  isFirebaseConfigured,
+  assertBrowserOnline,
+  awaitFirestoreOperation,
+  FIRESTORE_READ_TIMEOUT_MS,
+  FIRESTORE_WRITE_TIMEOUT_MS,
+  FirestoreOperationError,
+} from './config';
 import { Barber, BarberStatus, BarberServiceMode } from '../../types/admin';
 import { DEFAULT_WEEKLY_SCHEDULE } from '../../data/adminMockData';
 
 export const CANONICAL_BUSINESS_ID = 'joao-barber';
 const COLLECTION_PATH = 'professionals';
+
+/**
+ * Gera um identificador único e determinístico para criação idempotente de profissionais.
+ */
+export function generateProfessionalDraftId(): string {
+  if (isFirebaseConfigured && db) {
+    return doc(collection(db, COLLECTION_PATH)).id;
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `pro_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  }
+  return `pro_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Valida campos de profissional conforme as Firestore Security Rules.
+ */
+export function validateProfessionalInput(input: {
+  name?: string;
+  whatsapp?: string;
+  email?: string;
+  photoUrl?: string;
+  status?: BarberStatus;
+  serviceMode?: BarberServiceMode;
+}): { isValid: boolean; error?: string } {
+  if (input.name !== undefined) {
+    const trimmedName = input.name.trim();
+    if (trimmedName.length < 1 || trimmedName.length > 100) {
+      return {
+        isValid: false,
+        error: 'O nome do profissional deve ter entre 1 e 100 caracteres.',
+      };
+    }
+  }
+
+  if (input.whatsapp !== undefined) {
+    const trimmedWhatsapp = input.whatsapp.trim();
+    if (trimmedWhatsapp.length < 4 || trimmedWhatsapp.length > 30) {
+      return {
+        isValid: false,
+        error: 'O WhatsApp deve ter entre 4 e 30 caracteres.',
+      };
+    }
+  }
+
+  if (input.email !== undefined && input.email.trim().length > 100) {
+    return {
+      isValid: false,
+      error: 'O e-mail não pode ultrapassar 100 caracteres.',
+    };
+  }
+
+  if (input.photoUrl !== undefined && input.photoUrl.trim().length > 2000) {
+    return {
+      isValid: false,
+      error: 'A URL da foto não pode ultrapassar 2000 caracteres.',
+    };
+  }
+
+  if (input.status !== undefined && input.status !== 'active' && input.status !== 'inactive') {
+    return {
+      isValid: false,
+      error: 'Status de profissional inválido.',
+    };
+  }
+
+  if (
+    input.serviceMode !== undefined &&
+    input.serviceMode !== 'all' &&
+    input.serviceMode !== 'custom'
+  ) {
+    return {
+      isValid: false,
+      error: 'Modo de serviço inválido.',
+    };
+  }
+
+  return { isValid: true };
+}
 
 /**
  * Normaliza um snapshot de documento Firestore em um objeto Barber da aplicação.
@@ -49,7 +137,7 @@ export function normalizeFirestoreProfessional(docId: string, data: Record<strin
 
   return {
     id: docId,
-    businessId: data.businessId || CANONICAL_BUSINESS_ID,
+    businessId: data.businessId || '',
     name: data.name || 'Profissional',
     photoUrl: data.photoUrl || '',
     whatsapp: data.whatsapp || '',
@@ -70,7 +158,7 @@ export function normalizeFirestoreProfessional(docId: string, data: Record<strin
  * Preservada por compatibilidade de assinatura, retornando array vazio sem efeitos colaterais.
  */
 export async function seedInitialProfessionalsIfEmpty(
-  businessId = CANONICAL_BUSINESS_ID
+  businessId: string
 ): Promise<Barber[]> {
   console.info(`[Equipe Firestore] seedInitialProfessionalsIfEmpty desativado (V4_07) para businessId="${businessId}". Nenhum mock gravado.`);
   return [];
@@ -81,35 +169,44 @@ export async function seedInitialProfessionalsIfEmpty(
  * Se a coleção estiver vazia, retorna uma lista vazia sem inserir documentos.
  */
 export async function getFirestoreProfessionals(
-  businessId = CANONICAL_BUSINESS_ID
+  businessId: string
 ): Promise<Barber[]> {
-  console.info(`[Equipe Firestore] getFirestoreProfessionals: consultando coleção "${COLLECTION_PATH}" para businessId="${businessId}" | isFirebaseConfigured=${isFirebaseConfigured}`);
-
   if (!isFirebaseConfigured || !db) {
-    console.warn('[Equipe Firestore] getFirestoreProfessionals: Firebase NÃO configurado (VITE_FIREBASE_API_KEY ausente). Retornando lista vazia.');
+    console.warn('[Equipe Firestore] getFirestoreProfessionals: Firebase NÃO configurado. Retornando lista vazia.');
     return [];
   }
 
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) ausente na sessão administrativa.');
+  }
+
   try {
+    assertBrowserOnline('consultar a equipe de profissionais');
+
     const q = query(
       collection(db, COLLECTION_PATH),
-      where('businessId', '==', businessId)
+      where('businessId', '==', cleanBusinessId)
     );
 
-    const snapshot = await getDocs(q);
-    console.info(`[Equipe Firestore] getFirestoreProfessionals: consulta retornou ${snapshot.size} documento(s) do Firestore.`);
+    const snapshot = await awaitFirestoreOperation(getDocs(q), {
+      timeoutMs: FIRESTORE_READ_TIMEOUT_MS,
+      timeoutMessage: 'Tempo esgotado ao carregar a equipe do Firestore. Verifique sua conexão.',
+      indeterminateOnTimeout: false,
+    });
 
     if (snapshot.empty) {
-      console.info(`[Equipe Firestore] Coleção "${COLLECTION_PATH}" vazia para businessId="${businessId}". Retornando lista vazia sem auto-seed.`);
       return [];
     }
 
-    const barbers: Barber[] = [];
+    const barbersMap = new Map<string, Barber>();
     snapshot.forEach((docSnap) => {
-      barbers.push(normalizeFirestoreProfessional(docSnap.id, docSnap.data()));
+      if (!barbersMap.has(docSnap.id)) {
+        barbersMap.set(docSnap.id, normalizeFirestoreProfessional(docSnap.id, docSnap.data()));
+      }
     });
 
-    console.info(`[Equipe Firestore] getFirestoreProfessionals: ${barbers.length} profissional(is) normalizado(s) com sucesso.`, barbers.map((b) => ({ id: b.id, name: b.name, status: b.status })));
+    const barbers = Array.from(barbersMap.values());
 
     // Ordenar ativos primeiro, depois por nome
     return barbers.sort((a, b) => {
@@ -151,36 +248,126 @@ function sanitizePayloadForFirestore(data: Record<string, any>): Record<string, 
 }
 
 /**
- * Cria um novo profissional no Firestore.
+ * Cria um novo profissional no Firestore de forma idempotente (ID fixo por tentativa),
+ * protegendo contra timeout/offline e evitando duplicidade em retries.
  */
 export async function createFirestoreProfessional(
-  barberData: Omit<Barber, 'id' | 'createdAt'>
+  barberData: Omit<Barber, 'id' | 'createdAt'>,
+  options?: {
+    idempotencyId?: string;
+    wasIndeterminate?: boolean;
+  }
 ): Promise<Barber> {
-  const businessId = barberData.businessId || CANONICAL_BUSINESS_ID;
-  const status: BarberStatus = barberData.status || 'active';
-
-  console.info(`[Equipe Firestore] createFirestoreProfessional: iniciando criação para businessId="${businessId}" | isFirebaseConfigured=${isFirebaseConfigured}`);
-
-  if (!isFirebaseConfigured || !db) {
-    console.warn('[Equipe Firestore] AVISO CRÍTICO: Firebase NÃO configurado no ambiente (VITE_FIREBASE_API_KEY ausente). Profissional NÃO será salvo no Firestore e não persistirá após reload.');
-    return {
-      ...barberData,
-      id: `barber-${Date.now()}`,
-      businessId,
-      status,
-      active: status === 'active',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+  const cleanBusinessId = typeof barberData.businessId === 'string' ? barberData.businessId.trim() : '';
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) ausente na sessão administrativa.');
   }
 
+  const status: BarberStatus = barberData.status || 'active';
+
+  const validation = validateProfessionalInput({
+    name: barberData.name,
+    whatsapp: barberData.whatsapp,
+    email: barberData.email,
+    photoUrl: barberData.photoUrl,
+    status,
+    serviceMode: barberData.serviceMode,
+  });
+
+  if (!validation.isValid) {
+    throw new Error(validation.error || 'Dados do profissional inválidos.');
+  }
+
+  if (!isFirebaseConfigured || !db) {
+    throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
+  }
+
+  assertBrowserOnline('salvar o profissional');
+
+  const targetId =
+    typeof options?.idempotencyId === 'string' && options.idempotencyId.trim().length > 0
+      ? options.idempotencyId.trim()
+      : generateProfessionalDraftId();
+  const docRef = doc(db, COLLECTION_PATH, targetId);
+
   try {
+    const trimmedName = barberData.name.trim();
+    const trimmedWhatsapp = barberData.whatsapp.trim();
+    const trimmedEmail = (barberData.email || '').trim();
+    const trimmedPhotoUrl = (barberData.photoUrl || '').trim();
+
+    // Em retry após erro indeterminado, verifica no servidor via query multi-tenant (evita permission-denied
+    // de getDoc em documento inexistente sob regra resource.data.businessId) para preservar createdAt.
+    if (options?.wasIndeterminate) {
+      let existingSnapshot;
+      try {
+        const checkQuery = query(
+          collection(db, COLLECTION_PATH),
+          where('businessId', '==', cleanBusinessId)
+        );
+        existingSnapshot = await awaitFirestoreOperation(getDocsFromServer(checkQuery), {
+          timeoutMs: FIRESTORE_READ_TIMEOUT_MS,
+          timeoutMessage:
+            'Ainda não foi possível confirmar a gravação anterior com o servidor. Verifique sua conexão e tente novamente.',
+          indeterminateOnTimeout: true,
+        });
+      } catch (checkErr) {
+        if (checkErr instanceof FirestoreOperationError) {
+          throw checkErr;
+        }
+        throw new FirestoreOperationError(
+          'Ainda sem comunicação com o servidor para verificar a tentativa anterior. Verifique sua conexão e tente novamente.',
+          { isIndeterminate: true, isOffline: true, originalError: checkErr }
+        );
+      }
+
+      const existingDoc = existingSnapshot.docs.find((d) => d.id === targetId);
+      if (existingDoc) {
+        const existingNormalized = normalizeFirestoreProfessional(existingDoc.id, existingDoc.data());
+        const updatePayload = sanitizePayloadForFirestore({
+          name: trimmedName,
+          photoUrl: trimmedPhotoUrl,
+          whatsapp: trimmedWhatsapp,
+          email: trimmedEmail,
+          status,
+          active: status === 'active',
+          serviceMode: barberData.serviceMode,
+          serviceIds: barberData.serviceIds || [],
+          serviceConfigs: barberData.serviceConfigs || [],
+          schedule: barberData.schedule || [],
+          updatedAt: serverTimestamp(),
+        });
+
+        await awaitFirestoreOperation(updateDoc(docRef, updatePayload), {
+          timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+          timeoutMessage:
+            'O profissional já existe no servidor, mas a atualização dos detalhes não recebeu confirmação a tempo.',
+          indeterminateOnTimeout: true,
+        });
+
+        return {
+          ...existingNormalized,
+          name: trimmedName,
+          photoUrl: trimmedPhotoUrl,
+          whatsapp: trimmedWhatsapp,
+          email: trimmedEmail || undefined,
+          status,
+          active: status === 'active',
+          serviceMode: barberData.serviceMode,
+          serviceIds: barberData.serviceIds || [],
+          serviceConfigs: barberData.serviceConfigs || [],
+          schedule: barberData.schedule || [],
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    }
+
     const rawPayload = {
-      businessId,
-      name: barberData.name.trim(),
-      photoUrl: barberData.photoUrl || '',
-      whatsapp: barberData.whatsapp.trim(),
-      email: (barberData.email || '').trim(),
+      businessId: cleanBusinessId,
+      name: trimmedName,
+      photoUrl: trimmedPhotoUrl,
+      whatsapp: trimmedWhatsapp,
+      email: trimmedEmail,
       status,
       active: status === 'active',
       serviceMode: barberData.serviceMode,
@@ -193,14 +380,21 @@ export async function createFirestoreProfessional(
 
     const payload = sanitizePayloadForFirestore(rawPayload);
 
-    console.info(`[Equipe Firestore] Executando addDoc na coleção "${COLLECTION_PATH}"...`, { businessId, name: payload.name });
-    const docRef = await addDoc(collection(db, COLLECTION_PATH), payload);
-    console.info(`[Equipe Firestore] SUCESSO! Documento gravado no Firestore com ID: "${docRef.id}"`);
+    await awaitFirestoreOperation(setDoc(docRef, payload), {
+      timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+      timeoutMessage:
+        'Não foi possível confirmar o salvamento junto ao Firestore (conexão instável ou offline). O identificador desta tentativa foi preservado para retry seguro.',
+      indeterminateOnTimeout: true,
+    });
 
     return {
       ...barberData,
       id: docRef.id,
-      businessId,
+      businessId: cleanBusinessId,
+      name: trimmedName,
+      photoUrl: trimmedPhotoUrl,
+      whatsapp: trimmedWhatsapp,
+      email: trimmedEmail || undefined,
       status,
       active: status === 'active',
       createdAt: new Date().toISOString(),
@@ -211,9 +405,9 @@ export async function createFirestoreProfessional(
       code: error?.code || 'unknown',
       message: error?.message || String(error),
       operation: 'create',
-      path: COLLECTION_PATH,
+      path: `${COLLECTION_PATH}/${targetId}`,
     });
-    handleFirestoreError(error, OperationType.CREATE, COLLECTION_PATH);
+    handleFirestoreError(error, OperationType.CREATE, `${COLLECTION_PATH}/${targetId}`);
     throw error;
   }
 }
@@ -225,21 +419,38 @@ export async function updateFirestoreProfessional(
   id: string,
   updates: Partial<Barber>
 ): Promise<void> {
-  console.info(`[Equipe Firestore] updateFirestoreProfessional: ID="${id}" | isFirebaseConfigured=${isFirebaseConfigured}`);
-
-  if (!isFirebaseConfigured || !db) {
-    console.warn('[Equipe Firestore] Firebase NÃO configurado. Atualização executada apenas em memória.');
-    return;
+  const cleanId = typeof id === 'string' ? id.trim() : '';
+  if (!cleanId) {
+    throw new Error('Identificador do profissional inválido.');
   }
 
+  const validation = validateProfessionalInput({
+    name: updates.name,
+    whatsapp: updates.whatsapp,
+    email: updates.email,
+    photoUrl: updates.photoUrl,
+    status: updates.status,
+    serviceMode: updates.serviceMode,
+  });
+
+  if (!validation.isValid) {
+    throw new Error(validation.error || 'Dados inválidos para atualização do profissional.');
+  }
+
+  if (!isFirebaseConfigured || !db) {
+    throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
+  }
+
+  assertBrowserOnline('atualizar o profissional');
+
   try {
-    const docRef = doc(db, COLLECTION_PATH, id);
+    const docRef = doc(db, COLLECTION_PATH, cleanId);
     const payload: Record<string, any> = {
       updatedAt: serverTimestamp(),
     };
 
     if (updates.name !== undefined) payload.name = updates.name.trim();
-    if (updates.photoUrl !== undefined) payload.photoUrl = updates.photoUrl;
+    if (updates.photoUrl !== undefined) payload.photoUrl = updates.photoUrl.trim();
     if (updates.whatsapp !== undefined) payload.whatsapp = updates.whatsapp.trim();
     if (updates.email !== undefined) payload.email = updates.email.trim();
     if (updates.status !== undefined) {
@@ -252,11 +463,15 @@ export async function updateFirestoreProfessional(
     if (updates.schedule !== undefined) payload.schedule = updates.schedule;
 
     const cleanPayload = sanitizePayloadForFirestore(payload);
-    await updateDoc(docRef, cleanPayload);
-    console.info(`[Equipe Firestore] SUCESSO! Profissional "${id}" atualizado no Firestore.`);
+    await awaitFirestoreOperation(updateDoc(docRef, cleanPayload), {
+      timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+      timeoutMessage:
+        'Não foi possível confirmar a atualização do profissional no Firestore (conexão instável ou offline).',
+      indeterminateOnTimeout: true,
+    });
   } catch (error: any) {
-    console.error(`[Equipe Firestore] ERRO ao atualizar profissional "${id}" no Firestore:`, error?.message || error);
-    handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_PATH}/${id}`);
+    console.error(`[Equipe Firestore] ERRO ao atualizar profissional "${cleanId}" no Firestore:`, error?.message || error);
+    handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_PATH}/${cleanId}`);
     throw error;
   }
 }
@@ -268,6 +483,5 @@ export async function setProfessionalStatus(
   id: string,
   status: BarberStatus
 ): Promise<void> {
-  console.info(`[Equipe Firestore] setProfessionalStatus: alterando ID="${id}" para status="${status}"`);
   await updateFirestoreProfessional(id, { status });
 }

@@ -1,26 +1,47 @@
 import {
   collection,
-  addDoc,
   setDoc,
   doc,
   getDocs,
-  getDoc,
+  getDocFromServer,
   query,
   where,
   updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, isFirebaseConfigured } from './config';
+import {
+  db,
+  handleFirestoreError,
+  OperationType,
+  isFirebaseConfigured,
+  assertBrowserOnline,
+  awaitFirestoreOperation,
+  FIRESTORE_READ_TIMEOUT_MS,
+  FIRESTORE_WRITE_TIMEOUT_MS,
+  FirestoreOperationError,
+} from './config';
 import { AdminService, ServiceCategoryId } from '../../types/admin';
 import { ServiceCategory } from '../../types/booking';
 import {
-  DEFAULT_BUSINESS_ID,
   DEFAULT_SERVICE_CATEGORIES,
   INITIAL_ADMIN_SERVICES,
   validateServiceInput,
 } from '../adminServiceDomain';
 
 export const CANONICAL_BUSINESS_ID = 'joao-barber';
+
+/**
+ * Gera um identificador único e determinístico para tentativas de criação de serviço.
+ */
+export function generateServiceDraftId(): string {
+  if (isFirebaseConfigured && db) {
+    return doc(collection(db, 'services')).id;
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `srv_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  }
+  return `srv_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 /**
  * Normalizes a Firestore document snapshot into an AdminService object.
@@ -53,7 +74,7 @@ export function normalizeFirestoreService(docId: string, data: Record<string, an
 
   return {
     id: docId,
-    businessId: data.businessId || CANONICAL_BUSINESS_ID,
+    businessId: data.businessId || '',
     name: data.name || 'Serviço',
     categoryId: (data.categoryId as ServiceCategoryId) || 'cabelo',
     categoryName,
@@ -73,10 +94,14 @@ export function normalizeFirestoreService(docId: string, data: Record<string, an
  * Seeds initial services into Cloud Firestore idempotently with deterministic IDs.
  */
 export async function seedInitialServicesIfEmpty(
-  businessId = CANONICAL_BUSINESS_ID
+  businessId: string
 ): Promise<AdminService[]> {
   if (!isFirebaseConfigured || !db) {
     return [];
+  }
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) obrigatório para inicializar serviços.');
   }
 
   const collectionPath = 'services';
@@ -84,9 +109,9 @@ export async function seedInitialServicesIfEmpty(
     const createdServices: AdminService[] = [];
 
     for (const service of INITIAL_ADMIN_SERVICES) {
-      const docId = `${businessId}_${service.id}`;
+      const docId = `${cleanBusinessId}_${service.id}`;
       const payload = {
-        businessId,
+        businessId: cleanBusinessId,
         name: service.name,
         categoryId: service.categoryId,
         categoryName: service.categoryName,
@@ -102,7 +127,7 @@ export async function seedInitialServicesIfEmpty(
       createdServices.push({
         ...service,
         id: docId,
-        businessId,
+        businessId: cleanBusinessId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -120,19 +145,28 @@ export async function seedInitialServicesIfEmpty(
  * Does not combine with mock data.
  */
 export async function getFirestoreServices(
-  businessId = CANONICAL_BUSINESS_ID
+  businessId: string
 ): Promise<AdminService[]> {
   if (!isFirebaseConfigured || !db) {
     return [];
   }
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) não definido para consultar serviços.');
+  }
 
   const collectionPath = 'services';
   try {
+    assertBrowserOnline('consultar os serviços');
     const q = query(
       collection(db, collectionPath),
-      where('businessId', '==', businessId)
+      where('businessId', '==', cleanBusinessId)
     );
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await awaitFirestoreOperation(getDocs(q), {
+      timeoutMs: FIRESTORE_READ_TIMEOUT_MS,
+      timeoutMessage: 'Tempo esgotado ao carregar serviços do Firestore. Verifique sua conexão.',
+      indeterminateOnTimeout: false,
+    });
 
     if (querySnapshot.empty) {
       return [];
@@ -163,7 +197,8 @@ export async function getFirestoreServices(
 }
 
 /**
- * Creates a new service in Cloud Firestore.
+ * Creates a new service in Cloud Firestore idempotently using a fixed document ID
+ * per modal attempt so retries never create duplicates and preserve createdAt.
  */
 export async function createFirestoreService(
   serviceData: {
@@ -174,13 +209,23 @@ export async function createFirestoreService(
     durationMinutes: number;
     active?: boolean;
   },
-  businessId = CANONICAL_BUSINESS_ID
+  businessId: string,
+  options?: {
+    idempotencyId?: string;
+    wasIndeterminate?: boolean;
+  }
 ): Promise<AdminService> {
   const collectionPath = 'services';
+  const cleanBusinessId = typeof businessId === 'string' ? businessId.trim() : '';
+
+  if (!cleanBusinessId) {
+    throw new Error('Identificador da barbearia (businessId) ausente na sessão administrativa.');
+  }
 
   const validation = validateServiceInput({
     name: serviceData.name,
     categoryId: serviceData.categoryId,
+    description: serviceData.description,
     price: serviceData.price,
     durationMinutes: serviceData.durationMinutes,
   });
@@ -194,28 +239,103 @@ export async function createFirestoreService(
     throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
   }
 
+  assertBrowserOnline('salvar o serviço');
+
+  const categoryDef = DEFAULT_SERVICE_CATEGORIES.find((c) => c.id === serviceData.categoryId);
+  const categoryName = categoryDef?.name || serviceData.categoryId;
+  const trimmedName = serviceData.name.trim();
+  const trimmedDescription = serviceData.description ? serviceData.description.trim() : '';
+  const numericPrice = Number(serviceData.price);
+  const roundedDuration = Math.round(Number(serviceData.durationMinutes));
+  const isActive = serviceData.active !== undefined ? serviceData.active : true;
+
+  const targetId =
+    typeof options?.idempotencyId === 'string' && options.idempotencyId.trim().length > 0
+      ? options.idempotencyId.trim()
+      : generateServiceDraftId();
+  const docRef = doc(db, collectionPath, targetId);
+
   try {
-    const categoryDef = DEFAULT_SERVICE_CATEGORIES.find((c) => c.id === serviceData.categoryId);
-    const categoryName = categoryDef?.name || serviceData.categoryId;
+    // Se a tentativa anterior teve resultado indeterminado, verifica primeiro no servidor
+    // antes de reenviar, evitando sobrescrever createdAt ou duplicar registros.
+    if (options?.wasIndeterminate) {
+      let existingSnap;
+      try {
+        existingSnap = await awaitFirestoreOperation(getDocFromServer(docRef), {
+          timeoutMs: FIRESTORE_READ_TIMEOUT_MS,
+          timeoutMessage:
+            'Ainda não foi possível confirmar a gravação anterior com o servidor. Verifique sua conexão e tente novamente.',
+          indeterminateOnTimeout: true,
+        });
+      } catch (checkErr) {
+        if (checkErr instanceof FirestoreOperationError) {
+          throw checkErr;
+        }
+        throw new FirestoreOperationError(
+          'Ainda sem comunicação com o servidor para verificar a tentativa anterior. Verifique sua conexão e tente novamente.',
+          { isIndeterminate: true, isOffline: true, originalError: checkErr }
+        );
+      }
+
+      if (existingSnap.exists()) {
+        const existingNormalized = normalizeFirestoreService(existingSnap.id, existingSnap.data());
+        // Atualiza somente campos editáveis, preservando createdAt original
+        await awaitFirestoreOperation(
+          updateDoc(docRef, {
+            name: trimmedName,
+            categoryId: serviceData.categoryId,
+            categoryName,
+            description: trimmedDescription,
+            price: numericPrice,
+            durationMinutes: roundedDuration,
+            active: isActive,
+            updatedAt: serverTimestamp(),
+          }),
+          {
+            timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+            timeoutMessage:
+              'O serviço já existe no servidor, mas a atualização dos detalhes não recebeu confirmação a tempo.',
+            indeterminateOnTimeout: true,
+          }
+        );
+
+        return {
+          ...existingNormalized,
+          name: trimmedName,
+          categoryId: serviceData.categoryId,
+          categoryName,
+          description: trimmedDescription,
+          price: numericPrice,
+          durationMinutes: roundedDuration,
+          active: isActive,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    }
 
     const payload = {
-      businessId,
-      name: serviceData.name.trim(),
+      businessId: cleanBusinessId,
+      name: trimmedName,
       categoryId: serviceData.categoryId,
       categoryName,
-      description: serviceData.description ? serviceData.description.trim() : '',
-      price: Number(serviceData.price),
-      durationMinutes: Math.round(Number(serviceData.durationMinutes)),
-      active: serviceData.active !== undefined ? serviceData.active : true,
+      description: trimmedDescription,
+      price: numericPrice,
+      durationMinutes: roundedDuration,
+      active: isActive,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
-    const docRef = await addDoc(collection(db, collectionPath), payload);
+    await awaitFirestoreOperation(setDoc(docRef, payload), {
+      timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+      timeoutMessage:
+        'Não foi possível confirmar o salvamento junto ao Firestore (conexão instável ou offline). O identificador desta tentativa foi preservado para retry seguro.',
+      indeterminateOnTimeout: true,
+    });
 
     return {
       id: docRef.id,
-      businessId,
+      businessId: cleanBusinessId,
       name: payload.name,
       categoryId: payload.categoryId,
       categoryName: payload.categoryName,
@@ -227,7 +347,7 @@ export async function createFirestoreService(
       updatedAt: new Date().toISOString(),
     };
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, collectionPath);
+    handleFirestoreError(error, OperationType.CREATE, `${collectionPath}/${targetId}`);
     throw error;
   }
 }
@@ -241,10 +361,17 @@ export async function updateFirestoreService(
 ): Promise<void> {
   const docPath = `services/${serviceId}`;
 
-  if (updates.name !== undefined || updates.categoryId !== undefined || updates.price !== undefined || updates.durationMinutes !== undefined) {
+  if (
+    updates.name !== undefined ||
+    updates.categoryId !== undefined ||
+    updates.description !== undefined ||
+    updates.price !== undefined ||
+    updates.durationMinutes !== undefined
+  ) {
     const validation = validateServiceInput({
       name: updates.name ?? 'Serviço',
       categoryId: updates.categoryId ?? 'cabelo',
+      description: updates.description,
       price: updates.price ?? 0,
       durationMinutes: updates.durationMinutes ?? 30,
     });
@@ -258,6 +385,8 @@ export async function updateFirestoreService(
   if (!isFirebaseConfigured || !db) {
     throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
   }
+
+  assertBrowserOnline('atualizar o serviço');
 
   try {
     const docRef = doc(db, 'services', serviceId);
@@ -280,7 +409,12 @@ export async function updateFirestoreService(
     if (updates.durationMinutes !== undefined) payload.durationMinutes = Math.round(Number(updates.durationMinutes));
     if (updates.active !== undefined) payload.active = Boolean(updates.active);
 
-    await updateDoc(docRef, payload);
+    await awaitFirestoreOperation(updateDoc(docRef, payload), {
+      timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+      timeoutMessage:
+        'Não foi possível confirmar a atualização do serviço no Firestore (conexão instável ou offline).',
+      indeterminateOnTimeout: true,
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, docPath);
     throw error;
@@ -298,13 +432,22 @@ export async function toggleFirestoreServiceActive(
     throw new Error('Operação indisponível. Firebase não configurado no ambiente.');
   }
 
+  assertBrowserOnline('alterar o status do serviço');
+
   const docPath = `services/${serviceId}`;
   try {
     const docRef = doc(db, 'services', serviceId);
-    await updateDoc(docRef, {
-      active: nextActiveState,
-      updatedAt: serverTimestamp(),
-    });
+    await awaitFirestoreOperation(
+      updateDoc(docRef, {
+        active: nextActiveState,
+        updatedAt: serverTimestamp(),
+      }),
+      {
+        timeoutMs: FIRESTORE_WRITE_TIMEOUT_MS,
+        timeoutMessage: 'Tempo esgotado ao atualizar o status do serviço no Firestore.',
+        indeterminateOnTimeout: true,
+      }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, docPath);
     throw error;

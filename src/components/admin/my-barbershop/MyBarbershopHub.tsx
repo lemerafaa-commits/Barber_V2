@@ -15,6 +15,7 @@ interface MyBarbershopHubProps {
   onNavigateSection: (section: MyBarbershopSection) => void;
   isLoading?: boolean;
   error?: string | null;
+  onRetry?: () => void;
 }
 
 export const MyBarbershopHub: React.FC<MyBarbershopHubProps> = ({
@@ -22,6 +23,7 @@ export const MyBarbershopHub: React.FC<MyBarbershopHubProps> = ({
   onNavigateSection,
   isLoading = false,
   error = null,
+  onRetry,
 }) => {
   // Count open days for preview
   const openDaysCount = Object.values(profile.openingHours).filter(
@@ -43,12 +45,13 @@ export const MyBarbershopHub: React.FC<MyBarbershopHubProps> = ({
 
       {/* Seção Link de Agendamento */}
       <PublicBookingLinkCard
-        businessId={profile.businessId || 'joao-barber'}
+        businessId={profile.businessId || ''}
         slug={profile.slug || profile.businessId}
         businessName={profile.name}
         theme="amber"
         isLoading={isLoading}
         error={error}
+        onRetry={onRetry}
       />
 
       {/* 4 Clickable Action Cards */}

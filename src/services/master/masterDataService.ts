@@ -13,7 +13,7 @@ import {
   MasterJoaoBarberRealResponse,
   MasterProfessional,
 } from '../../types/master';
-import { auth, isFirebaseConfigured } from '../firebase/config';
+import { masterAuth, isFirebaseConfigured } from '../firebase/config';
 
 // In-memory state for local session reactivity on real appointments
 let localAppointments: MasterAppointment[] = [];
@@ -64,12 +64,12 @@ export class MasterDataService {
       return this.cachedNetworkData;
     }
 
-    if (!isFirebaseConfigured || !auth || !auth.currentUser) {
+    if (!isFirebaseConfigured || !masterAuth || !masterAuth.currentUser) {
       return null;
     }
 
     try {
-      const idToken = await auth.currentUser.getIdToken();
+      const idToken = await masterAuth.currentUser.getIdToken();
       const response = await fetch('/api/master/network', {
         method: 'GET',
         headers: {
@@ -108,7 +108,7 @@ export class MasterDataService {
       return this.cachedRealData;
     }
 
-    if (!isFirebaseConfigured || !auth || !auth.currentUser) {
+    if (!isFirebaseConfigured || !masterAuth || !masterAuth.currentUser) {
       this.syncState = {
         status: 'error',
         errorMessage: 'Firebase não configurado ou usuário Master não autenticado no cliente.',
@@ -119,7 +119,7 @@ export class MasterDataService {
 
     try {
       this.syncState = { status: 'loading', lastAttemptAt: new Date().toISOString() };
-      const idToken = await auth.currentUser.getIdToken();
+      const idToken = await masterAuth.currentUser.getIdToken();
       const response = await fetch('/api/master/joao-barber', {
         method: 'GET',
         headers: {
